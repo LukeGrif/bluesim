@@ -39,20 +39,41 @@ If there is not SITL instance attached, these keys can be used to control the RO
 | Tilt camera down |   5   |
 | Tilt camera up   |   6   |
 | Rope 3 m ahead   |   P   |
+| Lean rope sideways / towards |  K / L  |
 
 # Test rope
 
-The pool has a fixed **red rope, 2 inch (50.8 mm) diameter**, hanging straight
-down from the water surface to the floor, for the rope detection / cutting code
+The pool has a fixed **red rope, 2 inch (50.8 mm) diameter**, from the water
+surface to the floor, for the rope detection / cutting / following code
 ([Rope_Detection](https://github.com/LukeGrif/Rope_Detection)). It is placed
-3 m in front of the ROV camera when the level loads; **P** moves it 3 m in
-front of the ROV again. The line at the bottom of the window shows the true
-distance from the ROV camera to the rope (ahead, and left/right), to check the
-detector's distance estimate against. It is drawn on the window only, not in
-the camera stream. The rope is solid (the ROV and gripper touch it) and the
-downward rangefinder ignores it.
+3 m in front of the ROV camera when the level loads.
 
-Settings are at the top of `scripts/target_rope.gd` (diameter, colour, distance).
+| Key | Rope |
+|---|---|
+| P | move it 3 m in front of the ROV again |
+| K | lean it sideways (as seen from the ROV): 0, 20, 40, -20, -40° |
+| L | lean it towards / away from the ROV: 0, 20, -20° |
+
+A leaning rope still passes through the point 3 m ahead of the camera, so it
+crosses the middle of the picture. The rope is solid (the ROV and gripper
+touch it) and the downward rangefinder ignores it.
+
+**Ground truth:** the line at the bottom of the window shows where the rope
+really is relative to the ROV camera (drawn on the window only, not in the
+camera stream). The same is sent 10 times a second as JSON on **UDP 5603**:
+
+```json
+{"t": 12.3, "ahead": 0.81, "right": -0.01, "up": 0.0, "dir": [0.0, 1.0, 0.0],
+ "lean_side": 0, "lean_ahead": 0, "depth": 6.2}
+```
+
+`ahead`/`right`/`up` are the closest point of the rope's centre line to the
+camera, in metres in the camera's axes; `dir` is the unit vector up the rope in
+the same axes; `depth` is the camera's depth below the surface. Rope_Detection
+logs its estimates against this (`python3 main.py --log`).
+
+Settings are at the top of `scripts/target_rope.gd` (diameter, colour,
+distance, lean angles, port).
 
 # SITL integration:
 
