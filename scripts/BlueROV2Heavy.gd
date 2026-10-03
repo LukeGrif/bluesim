@@ -4,11 +4,16 @@ extends RigidBody
 const THRUST = 50
 const RANGEFINDER_MAX = 50.0  # m, downward rangefinder / DVL altitude range
 # ROV camera stream for the control software (external SITL mode only):
-# raw RGB frames in UDP chunks, see send_video_frame()
+# raw RGB frames in UDP chunks, see send_video_frame(). The stream has its
+# own camera, set up like the BlueROV2's Low-Light HD USB Camera: 1920x1080
+# with an 80 deg horizontal field of view (BLUESIM_VIDEO_SIZE=1280x720 etc.
+# for a smaller picture with the same view).
 const VIDEO_PORT = 5602
-const VIDEO_WIDTH = 640
+const VIDEO_SIZE = Vector2(1920, 1080)
+const CAMERA_HFOV = 80.0  # deg
 const VIDEO_INTERVAL = 0.1  # s (10 frames/s)
 const VIDEO_CHUNK = 60000  # payload bytes per UDP packet
+const VIDEO_CHUNKS_PER_TICK = 40  # packets sent per rendered frame (paces a big frame)
 
 var interface = PacketPeerUDP.new()  # UDP socket for fdm in (server)
 var peer = null
@@ -25,6 +30,9 @@ var surface_y = null  # height of the water surface in the scene
 var video_out = PacketPeerUDP.new()
 var video_timer = 0.0
 var video_frame_id = 0
+var video_queue = []  # packets of the current frame still to send
+var stream_viewport = null
+var stream_camera = null
 
 onready var light_glows = [$light_glow, $light_glow2, $light_glow3, $light_glow4]
 
@@ -114,25 +122,57 @@ func send_fdm():
 	interface.put_packet(buffer.data_array)
 
 
+# The camera for the stream: an off-screen viewport the size of the real
+# camera's picture, with the real camera's field of view, following $Camera
+# (including its tilt). The window keeps showing $Camera as before.
+func setup_stream_camera():
+	var size = VIDEO_SIZE
+	var env_size = OS.get_environment("BLUESIM_VIDEO_SIZE")
+	if env_size != "":
+		var parts = env_size.to_lower().split("x")
+		if parts.size() == 2 and int(parts[0]) > 0 and int(parts[1]) > 0:
+			size = Vector2(int(parts[0]), int(parts[1]))
+	var main_viewport = $Camera.get_viewport()
+	stream_viewport = Viewport.new()
+	stream_viewport.size = size
+	stream_viewport.render_target_update_mode = Viewport.UPDATE_ALWAYS
+	stream_viewport.hdr = main_viewport.hdr
+	stream_viewport.msaa = main_viewport.msaa
+	stream_viewport.shadow_atlas_size = main_viewport.shadow_atlas_size
+	stream_viewport.shadow_atlas_quad_1 = main_viewport.shadow_atlas_quad_1
+	stream_camera = Camera.new()
+	stream_camera.keep_aspect = Camera.KEEP_WIDTH  # fov is horizontal
+	stream_camera.fov = CAMERA_HFOV
+	stream_camera.near = $Camera.near
+	stream_camera.far = $Camera.far
+	stream_camera.cull_mask = $Camera.cull_mask
+	stream_camera.environment = $Camera.environment
+	stream_viewport.add_child(stream_camera)
+	add_child(stream_viewport)  # shares the scene's 3D world
+	stream_camera.current = true
+	print("Camera stream: %dx%d, %.0f deg horizontal field of view, UDP %d" % [size.x, size.y, CAMERA_HFOV, VIDEO_PORT])
+
+
 # Send the ROV camera image to the control software. Each frame is split
 # into UDP packets with a 16-byte little-endian header:
 #   "BSV1", frame id (u32), chunk index (u16), chunk count (u16),
 #   width (u16), height (u16)
 # followed by that chunk of the RGB8 pixel rows (top row first).
+# The packets go out VIDEO_CHUNKS_PER_TICK per rendered frame rather than
+# all at once, so a 1080p frame (6 MB) doesn't overflow the receiver's
+# socket buffer; a new frame replaces any packets of the last one not sent.
 func send_video_frame():
-	var img = $Camera.get_viewport().get_texture().get_data()
+	var img = stream_viewport.get_texture().get_data()
 	if img == null or img.is_empty():
 		return
 	img.flip_y()
-	var width = min(VIDEO_WIDTH, img.get_width())
-	var height = int(img.get_height() * width / img.get_width()) / 2 * 2
-	if width <= 0 or height <= 0:
-		return
-	img.resize(width, height, Image.INTERPOLATE_BILINEAR)
 	img.convert(Image.FORMAT_RGB8)
+	var width = img.get_width()
+	var height = img.get_height()
 	var data = img.get_data()
 	var count = int(ceil(float(data.size()) / VIDEO_CHUNK))
 	video_frame_id = (video_frame_id + 1) % 4294967296
+	video_queue = []
 	for i in range(count):
 		var packet = StreamPeerBuffer.new()
 		packet.put_data("BSV1".to_ascii())
@@ -142,7 +182,7 @@ func send_video_frame():
 		packet.put_u16(width)
 		packet.put_u16(height)
 		packet.put_data(data.subarray(i * VIDEO_CHUNK, min((i + 1) * VIDEO_CHUNK, data.size()) - 1))
-		video_out.put_packet(packet.data_array)
+		video_queue.append(packet.data_array)
 
 
 func _process(delta):
@@ -150,6 +190,11 @@ func _process(delta):
 		return
 	if Globals.active_vehicle != self:
 		return
+	if stream_camera == null:
+		setup_stream_camera()
+	stream_camera.global_transform = $Camera.global_transform
+	for _i in range(min(VIDEO_CHUNKS_PER_TICK, video_queue.size())):
+		video_out.put_packet(video_queue.pop_front())
 	video_timer += delta
 	if video_timer >= VIDEO_INTERVAL:
 		video_timer = 0.0

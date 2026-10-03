@@ -41,6 +41,18 @@ If there is not SITL instance attached, these keys can be used to control the RO
 | Rope 3 m ahead   |   P   |
 | Lean rope sideways / towards |  K / L  |
 
+# Camera stream (external SITL)
+
+When started with `BLUESIM_EXTERNAL_SITL=1` (`run_bluesim.sh`), BlueSim sends
+the ROV camera to UDP 5602 for the control software, 10 frames/s. The stream
+has its own camera set up like the BlueROV2's Low-Light HD USB Camera:
+**1920x1080, 80° horizontal field of view** (no lens distortion), following
+the ROV camera and its tilt. The window keeps its own view. On a slow GPU use
+a smaller picture with the same view: `BLUESIM_VIDEO_SIZE=1280x720 ./run_bluesim.sh`.
+Each frame is raw RGB in UDP packets (header described in
+`scripts/BlueROV2Heavy.gd`), paced over a few rendered frames so a 6 MB frame
+doesn't overflow the receiver.
+
 # Test rope
 
 The pool has a fixed **red rope, 2 inch (50.8 mm) diameter**, from the water
