@@ -34,12 +34,15 @@ If there is not SITL instance attached, these keys can be used to control the RO
 | Strafe left      |   A   |
 | Lights down      |   1   |
 | Lights up        |   2   |
-| Close gripper    |   3   |
-| Open gripper     |   4   |
+| Open gripper     |   3   |
+| Close gripper    |   4   |
 | Tilt camera down |   5   |
 | Tilt camera up   |   6   |
 | Rope 3 m ahead   |   P   |
-| Lean rope sideways / towards |  K / L  |
+| Next rope type   |   N   |
+| Current speed    |   V   |
+| Lean the fixed rope sideways / towards |  K / L  |
+| Post beside the rope |   J   |
 
 # Camera stream (external SITL)
 
@@ -53,39 +56,131 @@ Each frame is raw RGB in UDP packets (header described in
 `scripts/BlueROV2Heavy.gd`), paced over a few rendered frames so a 6 MB frame
 doesn't overflow the receiver.
 
-# Test rope
+# Test rope, current and post
 
-The pool has a fixed **red rope, 2 inch (50.8 mm) diameter**, from the water
-surface to the floor, for the rope detection / cutting / following code
-([Rope_Detection](https://github.com/LukeGrif/Rope_Detection)). It is placed
-3 m in front of the ROV camera when the level loads.
+The pool has a **2 inch (50.8 mm) red test rope** 3 m in front of the ROV
+camera, for the rope detection / cutting / following code
+([Rope_Detection](https://github.com/LukeGrif/Rope_Detection)). Choose it in
+the **menu** (under Pool), or before starting with environment variables:
 
-| Key | Rope |
+| Menu | Choices | Environment variable |
+|---|---|---|
+| Rope | Fixed rod (no physics), Polypropylene (floats, 910 kg/m³), Dyneema/HMPE (floats slightly, 975), Nylon (sinks slowly, 1140), Polyester (sinks, 1380), Lead-core (sinks fast, 2000) | `BLUESIM_ROPE=nylon,hanging,10` (material, setup, length) |
+| Rope setup | Surface to floor (pinned at both), Hanging from the surface (free bottom end), Standing on the floor (free top end) | |
+| Rope length | 5, 10, 20 m (for a free end) | |
+| Current / from | none, 0.1, 0.25, 0.5 m/s; from the left, right, ahead, behind (relative to the ROV when the rope is placed) | `BLUESIM_CURRENT=0.25,left` |
+| Post | none, pile 0.3 m, pole 0.1 m | `BLUESIM_POST=pile` |
+
+Material keys: `fixed`, `polypropylene`, `dyneema`, `nylon`, `polyester`,
+`leadcore`; setups `surface_floor`, `hanging`, `standing`.
+
+| Key | |
 |---|---|
-| P | move it 3 m in front of the ROV again |
-| K | lean it sideways (as seen from the ROV): 0, 20, 40, -20, -40° |
-| L | lean it towards / away from the ROV: 0, 20, -20° |
+| P | put the rope 3 m in front of the ROV again (rebuilds it) |
+| N | next rope material |
+| V | next current speed |
+| K / L | lean the fixed rod sideways (0, 20, 40, -20, -40°) / towards or away (0, 20, -20°) |
+| J | put the post 3 m ahead and 1.5 m right of the ROV (a pile if none was chosen) |
 
-A leaning rope still passes through the point 3 m ahead of the camera, so it
-crosses the middle of the picture. The rope is solid (the ROV and gripper
-touch it) and the downward rangefinder ignores it.
+### Rope physics
 
-**Ground truth:** the line at the bottom of the window shows where the rope
-really is relative to the ROV camera (drawn on the window only, not in the
-camera stream). The same is sent 10 times a second as JSON on **UDP 5603**:
+A physics rope (`scripts/rope_segment.gd`) is a chain of 25 cm pieces joined
+by pin joints (free to bend). Every physics step each piece gets:
+
+- **weight minus buoyancy**: (rope density − 1000 kg/m³) × volume × g, so
+  polypropylene floats up and polyester sinks;
+- **water drag** on the flow through the water (piece velocity minus the
+  current), Morison style: across the piece with Cd 1.2 on its projected area
+  (d × L), along it with Cd 0.01 on its surface (π d L);
+- **added mass**: the displaced water's mass (Ca = 1) added to its own, so it
+  accelerates like a body in water, not in air.
+
+The current also pushes the ROV (through its drag), so DYNAMIC has to hold
+station against it.
+
+Checked against the steady lean of a straight rope with a free end in a
+uniform current (drag across the rope balances its weight in water:
+½ ρ Cd d U² cos²θ = w sinθ), 10 m ropes:
+
+| Rope, current | Simulated | Theory |
+|---|---|---|
+| Nylon, 0.25 m/s | 30.7° | 30.5° |
+| Nylon, 0.5 m/s | 56.6° | 56.5° |
+| Polyester, 0.25 m/s | 14.1° | 13.8° |
+| Lead-core, 0.25 m/s | 5.7° | 5.4° |
+| Polypropylene (standing), 0.25 m/s | 39.5° | 39.4° |
+
+The rope stretches less than 1 %. It takes a minute or two to settle after a
+change (the lower part has to move metres through the water), as a real rope
+would. "Surface to floor" is pinned at exactly the depth, so it's taut: it
+only bows as far as the joints give. Not modelled: rope elasticity and
+bending stiffness, vortex shedding (strumming), a buoy that bobs at the
+surface.
+
+### Holding the rope
+
+When the gripper has been **closing for 0.5 s with a rope piece between the
+jaws**, that piece is pinned to the ROV (simulated jaws can't reliably
+squeeze a rope); it stays held until the gripper **opens**. Close with the app's
+gripper buttons (servo 10) or key 4, open with key 3. The rope is then towed by
+the ROV, with its drag and weight acting on the ROV. The log prints
+`Gripper: holding the rope` / `let go of the rope`. Tested: centred on a
+hanging nylon rope, closed, and reversed: the rope stayed in the jaws and was
+dragged to a 60° lean; opening let it go.
+
+### Post
+
+A fixed grey post from the floor to above the surface (pile 0.3 m or pole
+0.1 m), 3 m ahead and 1.5 m to the right of the ROV camera when placed, for
+manipulation tests such as wrapping the rope round it.
+
+### Ground truth
+
+The line at the bottom of the window shows where the rope really is relative to
+the ROV camera (drawn on the window only, not in the camera stream). The same
+is sent 10 times a second as JSON on **UDP 5603**:
 
 ```json
 {"t": 12.3, "ahead": 0.81, "right": -0.01, "up": 0.0, "dir": [0.0, 1.0, 0.0],
- "lean_side": 0, "lean_ahead": 0, "depth": 6.2}
+ "lean_side": 0, "lean_ahead": 0, "depth": 6.2, "rope": "nylon", "setup": "hanging",
+ "current": 0.25, "diameter": 0.0508, "points": [[0.1, 2.0, 0.8], ...],
+ "post": {"diameter": 0.3, "top": [...], "bottom": [...]}}
 ```
 
-`ahead`/`right`/`up` are the closest point of the rope's centre line to the
-camera, in metres in the camera's axes; `dir` is the unit vector up the rope in
-the same axes; `depth` is the camera's depth below the surface. Rope_Detection
-logs its estimates against this (`python3 main.py --log`).
+`ahead`/`right`/`up`: the closest point of the rope's centre line to the
+camera, in metres in the camera's axes; `dir`: the unit vector up the rope
+there, as [right, up, ahead]; `lean_side`/`lean_ahead`: its lean (+ = top
+leans right / away); `points`: the whole centre line, top to bottom;
+`depth`: the camera's depth. Rope_Detection logs its estimates against this
+(`python3 main.py --log`).
 
-Settings are at the top of `scripts/target_rope.gd` (diameter, colour,
-distance, lean angles, port).
+# Training pictures (sim-to-real)
+
+```bash
+BLUESIM_CAPTURE=~/rope_data BLUESIM_CAPTURE_COUNT=2000 ./run_bluesim.sh
+```
+
+goes straight to the pool (no SITL) and saves pictures with exact labels for
+training a rope detector, then quits. Each picture is taken by a camera like
+the BlueROV2's (1920x1080, 80° horizontal; `BLUESIM_CAPTURE_SIZE=960x540`
+for smaller ones) at a random distance (0.25–4 m) and angle around the rope,
+with randomised:
+
+- rope: material, setup, length, current, lean, colour (60 % reds like the
+  real rope, the rest any colour, so the model learns its shape too)
+- post: none, pile or pole, near the rope (it hides the rope sometimes)
+- water: tint and visibility (2–30 m), ambient light, sun, the ROV's lamp
+- view: the rope anywhere in the picture, about 1 in 10 looking away (no rope)
+
+The ROV and its tether are in the pool too, as distractors. A new rope is
+built every 20 pictures; the physics runs a little between pictures and is
+paused for each one, so the label matches it exactly. `BLUESIM_CAPTURE_SEED`
+(default 1) makes a set repeatable.
+
+Output: `images/NNNNNN.png` and `labels/NNNNNN.json` (camera model `fx fy cx
+cy`, the rope's centre line in camera coordinates and its diameter, the post,
+the settings). `Rope_Detection/dataset/make_masks.py` turns the labels into
+masks (the rope as seen, and the whole rope including hidden parts).
 
 # SITL integration:
 

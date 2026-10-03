@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=2]
+[gd_scene load_steps=18 format=2]
 
 [ext_resource path="res://scenery/defaultEnvironment.tres" type="Environment" id=1]
 [ext_resource path="res://scripts/settings.gd" type="Script" id=2]
@@ -10,6 +10,8 @@
 [ext_resource path="res://scenery/scene.tscn" type="PackedScene" id=8]
 [ext_resource path="res://vehicles/bluerovheavy/BlueRovHeavy.tscn" type="PackedScene" id=9]
 [ext_resource path="res://scripts/target_rope.gd" type="Script" id=10]
+[ext_resource path="res://scripts/test_post.gd" type="Script" id=11]
+[ext_resource path="res://scripts/capture.gd" type="Script" id=12]
 
 [sub_resource type="GDScript" id=1]
 script/source = "# Licensed under the MIT License.
@@ -392,6 +394,12 @@ script = ExtResource( 5 )
 [node name="TargetRope" type="Spatial" parent="ViewportCamera/Viewport"]
 script = ExtResource( 10 )
 
+[node name="TestPost" type="Spatial" parent="ViewportCamera/Viewport"]
+script = ExtResource( 11 )
+
+[node name="Capture" type="Node" parent="ViewportCamera/Viewport"]
+script = ExtResource( 12 )
+
 [node name="SettingsPanel" type="PanelContainer" parent="ViewportCamera"]
 visible = false
 margin_left = 251.0
@@ -472,14 +480,16 @@ ESC - Graphics settings
 C - switch camera//vehicle
 R - reset position
 P - put the red rope 3 m in front of the ROV
-K / L - lean the rope sideways / towards
+N - next rope type   V - current speed
+K / L - lean the fixed rope sideways / towards
+J - put a post beside the rope
 
 Free camera:
 Hold left button + a/w/s/d + q/e
 
 ROV:
 1/2: Increase/decrease lights
-3/4: Close/open gripper
+3/4: Open/close gripper
 5/6: Camera tilt down/up
 Space: Rise
 Shift: Dive

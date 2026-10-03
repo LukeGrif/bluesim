@@ -1,19 +1,29 @@
 extends Spatial
 
-# A fixed rope from the water surface to the floor, for testing the rope
-# detection / cutting / following code (Rope_Detection repo).
-# It is placed DISTANCE metres in front of the ROV camera when the level
-# starts. Keys:
-#   P  move it in front of the ROV again
-#   K  lean it sideways (seen from the ROV):   0, 20, 40, -20, -40 deg
-#   L  lean it towards / away from the ROV:     0, 20, -20 deg
-# The rope always passes through the point DISTANCE m ahead of the camera,
-# so a leaning rope still crosses the middle of the picture.
+# The test rope for the rope detection / cutting / following code
+# (Rope_Detection repo). Its material, setup, length and the water current
+# are chosen in the menu (scripts/rope_types.gd, Globals):
+#   - a fixed rod (no physics) from the surface to the floor, which K/L lean
+#   - a physics rope (rope_segment.gd): a chain of 2 inch pieces with weight,
+#     buoyancy, water drag and added mass, pinned at the surface and/or the
+#     floor, that bends and moves in the current and can be held by the
+#     gripper (BlueROV2Heavy.gd)
+# It is placed DISTANCE m in front of the ROV camera when the level starts.
+# Keys:
+#   P  place it in front of the ROV again (rebuilds it)
+#   N  next rope material
+#   V  next current speed
+#   K  lean the fixed rod sideways (seen from the ROV): 0, 20, 40, -20, -40 deg
+#   L  lean the fixed rod towards / away from the ROV: 0, 20, -20 deg
 #
 # The label at the bottom of the window shows the true position of the rope
-# relative to the ROV camera, and the same is sent as JSON over UDP to
-# TRUTH_PORT (10 per second) so the detector can log its estimates against
-# the truth. The real rope is 2 inch (50.8 mm) diameter and red.
+# relative to the ROV camera, and the same (plus the whole rope as a line of
+# points, and the post) is sent as JSON over UDP to TRUTH_PORT 10 times a
+# second, for the detector's log and the training-data capture.
+# The real rope is 2 inch (50.8 mm) diameter and red.
+
+const RopeTypes = preload("res://scripts/rope_types.gd")
+const RopeSegment = preload("res://scripts/rope_segment.gd")
 
 const DIAMETER = 0.0508  # m
 const COLOR = Color(0.8, 0.05, 0.04)
@@ -22,6 +32,9 @@ const FLOOR_SEARCH = 200.0  # m along the rope to look for the floor
 const DEFAULT_LENGTH = 40.0  # m below the surface, if no floor is found
 const LEANS_SIDE = [0.0, 20.0, 40.0, -20.0, -40.0]  # deg, + = top leans right
 const LEANS_AHEAD = [0.0, 20.0, -20.0]  # deg, + = top leans away from the ROV
+const PIECE_LENGTH = 0.25  # m, length of each physics piece (longer for very long ropes)
+const MAX_PIECES = 140
+const ROPE_LAYER = 1 << 10  # physics pieces: collide with the world, not with each other
 const TRUTH_PORT = 5603
 const TRUTH_INTERVAL = 0.1  # s
 
@@ -33,9 +46,12 @@ var placed = false
 var place_timer = 0.5  # wait for the level to load before placing
 var lean_side = 0
 var lean_ahead = 0
-var anchor = Vector3()  # point on the rope DISTANCE m ahead of the camera
+var anchor = Vector3()  # point DISTANCE m ahead of the camera when placed
 var forward = Vector3(1, 0, 0)  # ROV's level forward direction when placed
-var direction = Vector3(0, 1, 0)  # unit vector up the rope
+var direction = Vector3(0, 1, 0)  # fixed rod: unit vector up the rod
+var pieces = []  # physics rope pieces, top to bottom
+var color = COLOR
+var material = null  # shared by all the rope's meshes
 var truth_out = PacketPeerUDP.new()
 var truth_timer = 0.0
 
@@ -82,12 +98,23 @@ func _unhandled_input(event):
 		return
 	if event.scancode == KEY_P:
 		place_in_front()
-	elif event.scancode == KEY_K:
+	elif event.scancode == KEY_N:
+		Globals.rope_material = (Globals.rope_material + 1) % RopeTypes.MATERIALS.size()
+		build_rope()
+	elif event.scancode == KEY_V:
+		var i = RopeTypes.CURRENT_SPEEDS.find(Globals.current_speed)
+		Globals.current_speed = RopeTypes.CURRENT_SPEEDS[(i + 1) % RopeTypes.CURRENT_SPEEDS.size()]
+		update_current()
+	elif event.scancode == KEY_K and is_fixed():
 		lean_side = (lean_side + 1) % LEANS_SIDE.size()
 		build_rope()
-	elif event.scancode == KEY_L:
+	elif event.scancode == KEY_L and is_fixed():
 		lean_ahead = (lean_ahead + 1) % LEANS_AHEAD.size()
 		build_rope()
+
+
+func is_fixed():
+	return RopeTypes.MATERIALS[Globals.rope_material]["density"] <= 0.0
 
 
 func surface_y():
@@ -105,7 +132,8 @@ func first_hit(from, to):
 		var hit = space_state.intersect_ray(from, to, exclude)
 		if hit.empty():
 			return null
-		if hit.collider is RigidBody or hit.collider.is_in_group("target_rope"):
+		if hit.collider is RigidBody or hit.collider.is_in_group("target_rope") \
+				or hit.collider.is_in_group("test_post"):
 			exclude.append(hit.collider)
 			continue
 		return hit.position
@@ -120,13 +148,57 @@ func place_in_front():
 	if forward.length() < 0.01:
 		forward = rov.global_transform.basis.z
 		forward.y = 0
-	forward = forward.normalized()
-	anchor = cam.origin + forward * DISTANCE
+	place_at(cam.origin + forward * DISTANCE, forward.normalized())
+
+
+# Put the rope through point (horizontally) with forward as "ahead" for the
+# lean and the current direction.
+func place_at(point, ahead):
+	forward = ahead
+	anchor = point
+	update_current()
 	build_rope()
 	placed = true
 
 
+# The current, relative to the ROV's heading when the rope was placed.
+func update_current():
+	var angle = deg2rad(RopeTypes.CURRENT_DIRECTIONS[Globals.current_direction]["angle"])
+	var from_dir = forward.rotated(Vector3.UP, angle)
+	Globals.current_velocity = -from_dir * Globals.current_speed
+	print("Current %.2f m/s %s" % [Globals.current_speed,
+		RopeTypes.CURRENT_DIRECTIONS[Globals.current_direction]["name"]])
+
+
+func clear_rope():
+	for child in get_children():
+		remove_child(child)
+		child.queue_free()
+	pieces = []
+
+
 func build_rope():
+	clear_rope()
+	if is_fixed():
+		build_fixed_rod()
+	else:
+		build_physics_rope()
+
+
+func rope_material():
+	material = SpatialMaterial.new()
+	material.albedo_color = color
+	material.roughness = 0.9
+	return material
+
+
+func set_color(c):
+	color = c
+	if material != null:
+		material.albedo_color = c
+
+
+func build_fixed_rod():
 	# lean the vertical: sideways about the forward axis, then towards/away
 	# about the sideways axis (both as seen from the ROV when it was placed)
 	var right = Vector3(-forward.z, 0, forward.x)
@@ -142,10 +214,6 @@ func build_rope():
 		bottom = top - direction * (DEFAULT_LENGTH / direction.y)
 	var length = top.distance_to(bottom)
 
-	for child in get_children():
-		remove_child(child)
-		child.queue_free()
-
 	var body = StaticBody.new()
 	body.add_to_group("target_rope")
 	add_child(body)
@@ -160,10 +228,7 @@ func build_rope():
 	mesh.height = length
 	mesh.radial_segments = 16
 	mesh.rings = 1
-	var material = SpatialMaterial.new()
-	material.albedo_color = COLOR
-	material.roughness = 0.9
-	mesh.material = material
+	mesh.material = rope_material()
 	var mesh_instance = MeshInstance.new()
 	mesh_instance.mesh = mesh
 	body.add_child(mesh_instance)
@@ -174,34 +239,174 @@ func build_rope():
 	var collision = CollisionShape.new()
 	collision.shape = shape
 	body.add_child(collision)
-	print("Rope placed %.1f m in front of the ROV camera, %.1f m long, leaning %d deg sideways, %d deg away" % [
+	print("Rope: fixed rod %.1f m in front of the ROV camera, %.1f m long, leaning %d deg sideways, %d deg away" % [
 		DISTANCE, length, LEANS_SIDE[lean_side], LEANS_AHEAD[lean_ahead]])
 
 
+func build_physics_rope():
+	var material_info = RopeTypes.MATERIALS[Globals.rope_material]
+	var setup = RopeTypes.SETUPS[Globals.rope_setup]["key"]
+	var surface = surface_y()
+	var floor_hit = first_hit(Vector3(anchor.x, surface, anchor.z), Vector3(anchor.x, surface - FLOOR_SEARCH, anchor.z))
+	var floor_y = surface - DEFAULT_LENGTH if floor_hit == null else floor_hit.y
+	var depth = surface - floor_y
+
+	# laid out straight up and down to start with; the physics takes it from there
+	var top_y
+	var length
+	if setup == "surface_floor":
+		top_y = surface
+		length = depth
+	elif setup == "hanging":
+		top_y = surface
+		length = min(Globals.rope_length, depth)
+	else:  # standing
+		length = min(Globals.rope_length, depth)
+		top_y = floor_y + length
+	var count = int(clamp(ceil(length / PIECE_LENGTH), 2, MAX_PIECES))
+	var piece = length / count
+
+	var mesh = CapsuleMesh.new()  # along its local Z in Godot 3
+	mesh.radius = DIAMETER / 2.0
+	mesh.mid_height = piece  # the round ends overlap the next piece, filling the bends
+	mesh.radial_segments = 12
+	mesh.rings = 2
+	mesh.material = rope_material()
+	var shape = CapsuleShape.new()
+	shape.radius = DIAMETER / 2.0
+	shape.height = piece
+
+	var previous = null
+	for i in range(count):
+		var body = RigidBody.new()
+		body.set_script(RopeSegment)
+		body.collision_layer = ROPE_LAYER
+		body.collision_mask = 1
+		var mesh_instance = MeshInstance.new()
+		mesh_instance.mesh = mesh
+		mesh_instance.rotation_degrees = Vector3(90, 0, 0)  # capsule Z -> piece Y
+		body.add_child(mesh_instance)
+		var collision = CollisionShape.new()
+		collision.shape = shape
+		collision.rotation_degrees = Vector3(90, 0, 0)
+		body.add_child(collision)
+		add_child(body)
+		body.setup(DIAMETER, piece, material_info["density"])
+		body.global_transform = Transform(Basis(), Vector3(anchor.x, top_y - (i + 0.5) * piece, anchor.z))
+		pieces.append(body)
+		var joint_y = top_y - i * piece
+		if previous != null:
+			pin(previous, body, joint_y)
+		previous = body
+
+	# pinned ends: to the surface (a buoy) and/or the floor (an anchor)
+	if setup == "surface_floor" or setup == "hanging":
+		pin(make_anchor(Vector3(anchor.x, top_y, anchor.z)), pieces[0], top_y)
+	if setup == "surface_floor" or setup == "standing":
+		pin(make_anchor(Vector3(anchor.x, floor_y, anchor.z)), pieces[-1], top_y - length)
+	print("Rope: %s, %s, %.1f m (%d pieces) %.1f m in front of the ROV camera" % [
+		material_info["name"], RopeTypes.SETUPS[Globals.rope_setup]["name"], length, count, DISTANCE])
+
+
+func make_anchor(position):
+	var body = StaticBody.new()
+	add_child(body)
+	body.global_transform = Transform(Basis(), position)
+	return body
+
+
+func pin(a, b, y):
+	var joint = PinJoint.new()
+	add_child(joint)
+	joint.global_transform = Transform(Basis(), Vector3(anchor.x, y, anchor.z))
+	joint.set_node_a(a.get_path())
+	joint.set_node_b(b.get_path())
+
+
+# The rope's centre line as a list of world points, top to bottom.
+func rope_points():
+	if pieces.empty():
+		for child in get_children():
+			if child is StaticBody and child.is_in_group("target_rope"):
+				var t = child.global_transform
+				var length = 0.0
+				for c in child.get_children():
+					if c is CollisionShape:
+						length = c.shape.height
+				var half = t.basis.y.normalized() * length / 2.0
+				return [t.origin + half, t.origin - half]
+		return []
+	var points = []
+	for i in range(pieces.size()):
+		var t = pieces[i].global_transform
+		var half = t.basis.y.normalized() * pieces[i].length / 2.0
+		if i == 0:
+			points.append(t.origin + half)
+		points.append(t.origin - half)
+	return points
+
+
 # The rope relative to the ROV camera: the closest point of its centre line
-# (ahead along the view, right, up, in metres) and its direction (unit
-# vector up the rope, same axes), plus the camera depth below the surface.
+# (ahead along the view, right, up, in metres) and its direction there (unit
+# vector up the rope, as [right, up, ahead]), its lean, the whole centre line
+# as [right, up, ahead] points, the post if there is one, and the camera's
+# depth below the surface.
 func rope_from_camera():
 	var cam = camera.global_transform
-	var closest = anchor + direction * (cam.origin - anchor).dot(direction)
-	var rel = closest - cam.origin
 	var cam_right = cam.basis.x.normalized()
 	var cam_up = cam.basis.y.normalized()
 	var cam_ahead = -cam.basis.z.normalized()
-	return {
+	var points = rope_points()
+	var best = null
+	var best_dir = Vector3(0, 1, 0)
+	for i in range(points.size() - 1):
+		var a = points[i]
+		var b = points[i + 1]
+		var ab = b - a
+		var t = clamp((cam.origin - a).dot(ab) / max(ab.length_squared(), 1e-9), 0.0, 1.0)
+		var p = a + ab * t
+		if best == null or p.distance_to(cam.origin) < best.distance_to(cam.origin):
+			best = p
+			best_dir = (a - b).normalized()  # up the rope (points go top to bottom)
+	if best == null:
+		best = anchor
+	var rel = best - cam.origin
+	var dir = [best_dir.dot(cam_right), best_dir.dot(cam_up), best_dir.dot(cam_ahead)]
+	var line = []
+	for p in points:
+		var q = p - cam.origin
+		line.append([q.dot(cam_right), q.dot(cam_up), q.dot(cam_ahead)])
+	var truth = {
 		"t": OS.get_ticks_msec() / 1000.0,
 		"ahead": rel.dot(cam_ahead),
 		"right": rel.dot(cam_right),
 		"up": rel.dot(cam_up),
-		"dir": [direction.dot(cam_right), direction.dot(cam_up), direction.dot(cam_ahead)],
-		"lean_side": LEANS_SIDE[lean_side],
-		"lean_ahead": LEANS_AHEAD[lean_ahead],
+		"dir": dir,
+		"lean_side": rad2deg(atan2(dir[0], dir[1])),
+		"lean_ahead": rad2deg(atan2(dir[2], dir[1])),
 		"depth": surface_y() - cam.origin.y,
+		"rope": RopeTypes.MATERIALS[Globals.rope_material]["key"],
+		"setup": RopeTypes.SETUPS[Globals.rope_setup]["key"],
+		"current": Globals.current_speed,
+		"diameter": DIAMETER,
+		"points": line,
 	}
+	var post = get_tree().get_root().find_node("TestPost", true, false)
+	if post != null and post.has_method("info") and post.info() != null:
+		var info = post.info()
+		var top = info["top"] - cam.origin
+		var bottom = info["bottom"] - cam.origin
+		truth["post"] = {
+			"diameter": info["diameter"],
+			"top": [top.dot(cam_right), top.dot(cam_up), top.dot(cam_ahead)],
+			"bottom": [bottom.dot(cam_right), bottom.dot(cam_up), bottom.dot(cam_ahead)],
+		}
+	return truth
 
 
 func update_label(truth):
 	label.rect_position = Vector2(10, get_tree().get_root().size.y - 30)
-	label.text = "Rope: %.2f m ahead, %.2f m %s, lean %d/%d deg   P: move  K/L: lean" % [
+	var kind = RopeTypes.MATERIALS[Globals.rope_material]["name"]
+	label.text = "Rope: %.2f m ahead, %.2f m %s, lean %d/%d deg  [%s, current %.2f m/s]   P: move  N: rope  V: current  K/L: lean" % [
 		truth["ahead"], abs(truth["right"]), "right" if truth["right"] >= 0 else "left",
-		truth["lean_side"], truth["lean_ahead"]]
+		truth["lean_side"], truth["lean_ahead"], kind, Globals.current_speed]

@@ -1,8 +1,9 @@
-[gd_scene load_steps=7 format=2]
+[gd_scene load_steps=8 format=2]
 
 [ext_resource path="res://assets/squareFont.tres" type="DynamicFont" id=1]
 [ext_resource path="res://menu/menuEnvironment.tres" type="Environment" id=2]
 [ext_resource path="res://vehicles/bluerovheavy/bluerov cleaned decimated.gltf" type="PackedScene" id=3]
+[ext_resource path="res://scripts/rope_menu.gd" type="Script" id=4]
 
 [sub_resource type="GDScript" id=1]
 script/source = "extends Control
@@ -120,6 +121,14 @@ func _ready():
 	get_tree().set_auto_accept_quit(false)
 	find_external_levels()
 	$HBoxContainer/Menu/Buttons.visible = false
+
+	if Globals.capturing:
+		# training-data capture (scripts/capture.gd): straight to the pool, no SITL
+		add_status(\"Capturing training pictures\")
+		Globals.external_sitl = true
+		OS.vsync_enabled = false
+		call_deferred(\"_on_poolLevel_pressed\")
+		return
 
 	if _use_external_sitl():
 		# SITL is started separately (e.g. sim_vehicle.py --model JSON with a custom
@@ -254,7 +263,7 @@ valign = 1
 
 [node name="HBoxContainer" type="HBoxContainer" parent="."]
 margin_left = 100.0
-margin_top = 211.0
+margin_top = 120.0
 margin_right = 485.0
 margin_bottom = 317.0
 grow_horizontal = 2
@@ -299,6 +308,12 @@ margin_right = 375.0
 margin_bottom = 79.0
 text = "Sync with SITL (only run frames when new input arrive)"
 script = SubResource( 3 )
+
+[node name="RopeOptions" type="GridContainer" parent="HBoxContainer/Menu"]
+margin_top = 83.0
+margin_right = 375.0
+margin_bottom = 83.0
+script = ExtResource( 4 )
 
 [node name="statusLabel" type="Label" parent="HBoxContainer/Menu"]
 margin_top = 83.0

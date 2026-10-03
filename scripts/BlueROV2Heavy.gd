@@ -31,6 +31,17 @@ var video_out = PacketPeerUDP.new()
 var video_timer = 0.0
 var video_frame_id = 0
 var video_queue = []  # packets of the current frame still to send
+# Holding the test rope: when the gripper has been closing for GRASP_AFTER
+# seconds with a rope piece between the jaws, that piece is pinned to the ROV
+# (simulated jaws can't reliably squeeze a rope), until the gripper opens.
+const GRASP_AFTER = 0.5  # s of closing
+const ROPE_LAYER = 1 << 10  # target_rope.gd's physics pieces
+var gripper_command = 0  # 1 opening, -1 closing, 0 stopped
+var gripper_closed = false
+var closing_time = 0.0
+var grasp_area = null
+var grasp_joint = null
+var grasped_piece = null
 var stream_viewport = null
 var stream_camera = null
 
@@ -186,7 +197,7 @@ func send_video_frame():
 
 
 func _process(delta):
-	if Engine.is_editor_hint() or Globals.isHTML5 or not Globals.external_sitl:
+	if Engine.is_editor_hint() or Globals.isHTML5 or not Globals.external_sitl or Globals.capturing:
 		return
 	if Globals.active_vehicle != self:
 		return
@@ -277,6 +288,7 @@ func _ready():
 	else:
 		return
 	rangefinder_exclude.append(self)
+	setup_grasp_area()
 	video_out.set_dest_address("127.0.0.1", VIDEO_PORT)
 	if not Globals.isHTML5:
 		connect_fmd_in()
@@ -294,7 +306,73 @@ func _physics_process(delta):
 	calculated_acceleration.y += ProjectSettings.get_setting("physics/3d/default_gravity")
 	last_velocity = self.linear_velocity
 	get_servos()
+	apply_current()
+	update_grasp(delta)
 	send_fdm()
+
+
+# The water current pushes the ROV like its drag (linear_damp) would: with
+# the thrusters off it drifts at the current's speed.
+func apply_current():
+	if Globals.current_velocity.length() > 0.0:
+		add_central_force(Globals.current_velocity * mass * linear_damp)
+
+
+# The space between the open jaws, in the ROV's frame (forward is +Z):
+# 0.02-0.21 m ahead of the camera and ~0.26 m below it.
+func setup_grasp_area():
+	grasp_area = Area.new()
+	grasp_area.collision_layer = 0
+	grasp_area.collision_mask = ROPE_LAYER
+	grasp_area.monitorable = false
+	var shape = BoxShape.new()
+	shape.extents = Vector3(0.07, 0.06, 0.1)
+	var collision = CollisionShape.new()
+	collision.shape = shape
+	grasp_area.add_child(collision)
+	add_child(grasp_area)
+	grasp_area.transform = Transform(Basis(), $Camera.transform.origin + Vector3(0, -0.26, 0.12))
+
+
+func update_grasp(delta):
+	if gripper_command == -1:
+		closing_time += delta
+		if closing_time >= GRASP_AFTER:
+			gripper_closed = true
+	else:
+		closing_time = 0.0
+	if gripper_command == 1:
+		gripper_closed = false
+
+	if gripper_closed and grasp_joint == null:
+		var centre = grasp_area.global_transform.origin
+		var best = null
+		for body in grasp_area.get_overlapping_bodies():
+			if body.is_in_group("rope_segment") and (best == null or
+					body.global_transform.origin.distance_to(centre) < best.global_transform.origin.distance_to(centre)):
+				best = body
+		if best != null:
+			# pin it where the rope's centre line passes the middle of the jaws
+			var axis = best.global_transform.basis.y.normalized()
+			var point = best.global_transform.origin + axis * axis.dot(centre - best.global_transform.origin)
+			grasp_joint = PinJoint.new()
+			add_child(grasp_joint)
+			grasp_joint.global_transform = Transform(Basis(), point)
+			grasp_joint.set_node_a(get_path())
+			grasp_joint.set_node_b(best.get_path())
+			grasped_piece = best
+			print("Gripper: holding the rope")
+	elif not gripper_closed and grasp_joint != null:
+		remove_child(grasp_joint)
+		grasp_joint.queue_free()
+		grasp_joint = null
+		grasped_piece = null
+		print("Gripper: let go of the rope")
+	elif grasp_joint != null and not is_instance_valid(grasped_piece):
+		# the rope was rebuilt
+		grasp_joint.queue_free()
+		grasp_joint = null
+		grasped_piece = null
 
 
 func add_force_local(force: Vector3, pos: Vector3):
@@ -345,12 +423,15 @@ func actuate_servo(id, percentage):
 			if percentage > 0.6:
 				ljoint.set_param(6, 1)
 				rjoint.set_param(6, -1)
+				gripper_command = 1
 			elif percentage < 0.4:
 				ljoint.set_param(6, -1)
 				rjoint.set_param(6, 1)
+				gripper_command = -1
 			else:
 				ljoint.set_param(6, 0)
 				rjoint.set_param(6, 0)
+				gripper_command = 0
 		10:
 			$Camera.rotation_degrees.x = -45 + 90 * percentage
 
@@ -444,9 +525,12 @@ func process_keys():
 	if Input.is_action_pressed("gripper_open"):
 		ljoint.set_param(6, 1)
 		rjoint.set_param(6, -1)
+		gripper_command = 1
 	elif Input.is_action_pressed("gripper_close"):
 		ljoint.set_param(6, -1)
 		rjoint.set_param(6, 1)
+		gripper_command = -1
 	elif not Globals.external_sitl:  # with SITL the gripper servo drives it
 		ljoint.set_param(6, 0)
 		rjoint.set_param(6, 0)
+		gripper_command = 0
