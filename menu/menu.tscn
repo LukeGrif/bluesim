@@ -125,6 +125,10 @@ func _ready():
 		# SITL is started separately (e.g. sim_vehicle.py --model JSON with a custom
 		# ArduSub build), so don't download or launch the stock binary.
 		add_status(\"Using external SITL (sim_vehicle.py --model JSON)\")
+		Globals.external_sitl = true
+		# With vsync on, a covered or minimised window can block in the buffer
+		# swap, which stops the physics and with it the SITL clock.
+		OS.vsync_enabled = false
 		$HBoxContainer/Menu/Buttons.visible = true
 		return
 

@@ -14,6 +14,10 @@ func _ready():
 	Engine.iterations_per_second = Globals.physics_rate
 	$VBoxContainer/physicsRate.text = 'Physics: ' + String(Globals.physics_rate) + ' Hz'
 	$VBoxContainer/physicsRateSlider.value = Globals.physics_rate
+	if Globals.external_sitl:
+		# keep the frame rate up so the physics (and SITL) runs in real time
+		for toggle in ["godrayToggle", "dirtparticlesToggle", "fancyWaterToggle", "Ping360Toggle"]:
+			get_node("VBoxContainer/" + toggle).pressed = false
 
 
 # Called every frame. 'delta' is the elapsed time since the previous frame.
