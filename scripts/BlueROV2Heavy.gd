@@ -175,8 +175,8 @@ func measure_range():
 		var hit = space_state.intersect_ray(origin, target, rangefinder_exclude)
 		if hit.empty():
 			break
-		if hit.collider is RigidBody:
-			# the tether, gripper and loose objects are not the seafloor
+		if hit.collider is RigidBody or hit.collider.is_in_group("target_rope"):
+			# the tether, gripper, loose objects and the test rope are not the seafloor
 			rangefinder_exclude.append(hit.collider)
 			continue
 		return origin.distance_to(hit.position)

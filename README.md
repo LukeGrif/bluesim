@@ -38,6 +38,21 @@ If there is not SITL instance attached, these keys can be used to control the RO
 | Open gripper     |   4   |
 | Tilt camera down |   5   |
 | Tilt camera up   |   6   |
+| Rope 3 m ahead   |   P   |
+
+# Test rope
+
+The pool has a fixed **red rope, 2 inch (50.8 mm) diameter**, hanging straight
+down from the water surface to the floor, for the rope detection / cutting code
+([Rope_Detection](https://github.com/LukeGrif/Rope_Detection)). It is placed
+3 m in front of the ROV camera when the level loads; **P** moves it 3 m in
+front of the ROV again. The line at the bottom of the window shows the true
+distance from the ROV camera to the rope (ahead, and left/right), to check the
+detector's distance estimate against. It is drawn on the window only, not in
+the camera stream. The rope is solid (the ROV and gripper touch it) and the
+downward rangefinder ignores it.
+
+Settings are at the top of `scripts/target_rope.gd` (diameter, colour, distance).
 
 # SITL integration:
 
