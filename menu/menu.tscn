@@ -121,6 +121,13 @@ func _ready():
 	find_external_levels()
 	$HBoxContainer/Menu/Buttons.visible = false
 
+	if _use_external_sitl():
+		# SITL is started separately (e.g. sim_vehicle.py --model JSON with a custom
+		# ArduSub build), so don't download or launch the stock binary.
+		add_status(\"Using external SITL (sim_vehicle.py --model JSON)\")
+		$HBoxContainer/Menu/Buttons.visible = true
+		return
+
 	if OS.get_name() == \"Windows\":
 		if not File.new().file_exists(\"user://ardusub.exe\"):
 			add_status(\"SITL binary not found, downloading...\")
@@ -139,6 +146,11 @@ func _ready():
 		$HBoxContainer/Buttons.visible = true
 		$HBoxContainer/Buttons/CheckBox.visible = false
 		add_status(\"SITL not available for plataform: %s\" % OS.get_name())
+
+func _use_external_sitl():
+	if \"--external-sitl\" in OS.get_cmdline_args():
+		return true
+	return OS.get_environment(\"BLUESIM_EXTERNAL_SITL\").to_lower() in [\"1\", \"true\", \"yes\"]
 
 func _on_poolLevel_pressed():
 	Globals.active_vehicle = \"bluerovheavy\"

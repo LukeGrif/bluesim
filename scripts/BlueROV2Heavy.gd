@@ -2,6 +2,7 @@ tool
 extends RigidBody
 
 const THRUST = 50
+const RANGEFINDER_MAX = 50.0  # m, downward rangefinder / DVL altitude range
 
 var interface = PacketPeerUDP.new()  # UDP socket for fdm in (server)
 var peer = null
@@ -13,6 +14,8 @@ var calculated_acceleration = Vector3(0, 0, 0)
 var buoyancy = 1.6 + self.mass * 9.8  # Newtons
 var _initial_position = 0
 var phys_time = 0
+var rangefinder_exclude = []
+var surface_y = null  # height of the water surface in the scene
 
 onready var light_glows = [$light_glow, $light_glow2, $light_glow3, $light_glow4]
 
@@ -83,8 +86,10 @@ func send_fdm():
 	var _velocity = toNED.xform(self.linear_velocity)
 	var velo = [_velocity.x, _velocity.y, _velocity.z]
 
+	# SITL treats altitude 0 as the water surface (it derives the depth sensor
+	# pressure from it), so report the down position relative to the surface.
 	var _position = toNED.xform(self.transform.origin)
-	var pos = [_position.x, _position.y, _position.z]
+	var pos = [_position.x, _position.y, _position.z + get_surface_y()]
 
 	var IMU_fmt = {"gyro": gyro, "accel_body": accel}
 	var JSON_fmt = {
@@ -92,11 +97,39 @@ func send_fdm():
 		"imu": IMU_fmt,
 		"position": pos,
 		"quaternion": [quaternon.w, quaternon.x, quaternon.y, quaternon.z],
-		"velocity": velo
+		"velocity": velo,
+		"rng_1": measure_range()
 	}
 	var JSON_string = "\n" + JSON.print(JSON_fmt) + "\n"
 	buffer.put_utf8_string(JSON_string)
 	interface.put_packet(buffer.data_array)
+
+
+func get_surface_y():
+	if surface_y == null:
+		var water = get_tree().get_root().find_node("water", true, false)
+		if water == null:
+			return 0.0
+		surface_y = water.global_transform.origin.y
+	return surface_y
+
+
+# Distance to the seafloor along the vehicle's down axis, like a downward
+# rangefinder or DVL. Read by SITL as rangefinder 1 (RNGFND1_TYPE = 100).
+func measure_range():
+	var origin = global_transform.origin
+	var target = origin - global_transform.basis.y.normalized() * RANGEFINDER_MAX
+	var space_state = get_world().direct_space_state
+	for _i in range(8):
+		var hit = space_state.intersect_ray(origin, target, rangefinder_exclude)
+		if hit.empty():
+			break
+		if hit.collider is RigidBody:
+			# the tether, gripper and loose objects are not the seafloor
+			rangefinder_exclude.append(hit.collider)
+			continue
+		return origin.distance_to(hit.position)
+	return RANGEFINDER_MAX + 1.0  # out of range
 
 
 func get_motors_table_entry(thruster):
@@ -147,6 +180,7 @@ func _ready():
 		Globals.active_vehicle = self
 	else:
 		return
+	rangefinder_exclude.append(self)
 	if not Globals.isHTML5:
 		connect_fmd_in()
 
@@ -159,7 +193,8 @@ func _physics_process(delta):
 	if Globals.isHTML5:
 		return
 	calculated_acceleration = (self.linear_velocity - last_velocity) / delta
-	calculated_acceleration.y += 10
+	# the accelerometer feels gravity; use the value the physics engine applies
+	calculated_acceleration.y += ProjectSettings.get_setting("physics/3d/default_gravity")
 	last_velocity = self.linear_velocity
 	get_servos()
 	send_fdm()
