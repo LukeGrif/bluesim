@@ -3,6 +3,12 @@ extends RigidBody
 
 const THRUST = 50
 const RANGEFINDER_MAX = 50.0  # m, downward rangefinder / DVL altitude range
+# ROV camera stream for the control software (external SITL mode only):
+# raw RGB frames in UDP chunks, see send_video_frame()
+const VIDEO_PORT = 5602
+const VIDEO_WIDTH = 640
+const VIDEO_INTERVAL = 0.1  # s (10 frames/s)
+const VIDEO_CHUNK = 60000  # payload bytes per UDP packet
 
 var interface = PacketPeerUDP.new()  # UDP socket for fdm in (server)
 var peer = null
@@ -16,6 +22,9 @@ var _initial_position = 0
 var phys_time = 0
 var rangefinder_exclude = []
 var surface_y = null  # height of the water surface in the scene
+var video_out = PacketPeerUDP.new()
+var video_timer = 0.0
+var video_frame_id = 0
 
 onready var light_glows = [$light_glow, $light_glow2, $light_glow3, $light_glow4]
 
@@ -105,6 +114,48 @@ func send_fdm():
 	interface.put_packet(buffer.data_array)
 
 
+# Send the ROV camera image to the control software. Each frame is split
+# into UDP packets with a 16-byte little-endian header:
+#   "BSV1", frame id (u32), chunk index (u16), chunk count (u16),
+#   width (u16), height (u16)
+# followed by that chunk of the RGB8 pixel rows (top row first).
+func send_video_frame():
+	var img = $Camera.get_viewport().get_texture().get_data()
+	if img == null or img.is_empty():
+		return
+	img.flip_y()
+	var width = min(VIDEO_WIDTH, img.get_width())
+	var height = int(img.get_height() * width / img.get_width()) / 2 * 2
+	if width <= 0 or height <= 0:
+		return
+	img.resize(width, height, Image.INTERPOLATE_BILINEAR)
+	img.convert(Image.FORMAT_RGB8)
+	var data = img.get_data()
+	var count = int(ceil(float(data.size()) / VIDEO_CHUNK))
+	video_frame_id = (video_frame_id + 1) % 4294967296
+	for i in range(count):
+		var packet = StreamPeerBuffer.new()
+		packet.put_data("BSV1".to_ascii())
+		packet.put_u32(video_frame_id)
+		packet.put_u16(i)
+		packet.put_u16(count)
+		packet.put_u16(width)
+		packet.put_u16(height)
+		packet.put_data(data.subarray(i * VIDEO_CHUNK, min((i + 1) * VIDEO_CHUNK, data.size()) - 1))
+		video_out.put_packet(packet.data_array)
+
+
+func _process(delta):
+	if Engine.is_editor_hint() or Globals.isHTML5 or not Globals.external_sitl:
+		return
+	if Globals.active_vehicle != self:
+		return
+	video_timer += delta
+	if video_timer >= VIDEO_INTERVAL:
+		video_timer = 0.0
+		send_video_frame()
+
+
 func get_surface_y():
 	if surface_y == null:
 		var water = get_tree().get_root().find_node("water", true, false)
@@ -181,6 +232,7 @@ func _ready():
 	else:
 		return
 	rangefinder_exclude.append(self)
+	video_out.set_dest_address("127.0.0.1", VIDEO_PORT)
 	if not Globals.isHTML5:
 		connect_fmd_in()
 
@@ -207,8 +259,8 @@ func add_force_local(force: Vector3, pos: Vector3):
 
 
 func actuate_servo(id, percentage):
-	if percentage == 0:
-		return
+	if percentage <= 0:
+		return  # no output on this channel
 
 	var force = (percentage - 0.5) * 2 * -THRUST
 	match id:
@@ -229,8 +281,7 @@ func actuate_servo(id, percentage):
 		7:
 			self.add_force_local($t8.transform.basis*Vector3(force,0,0), $t8.translation)
 		8:
-			$Camera.rotation_degrees.x = -45 + 90 * percentage
-		9:
+			# SERVO9: ArduSub's lights output (SERVO9_FUNCTION = Lights1)
 			percentage -= 0.1
 			$light1.light_energy = percentage * 5
 			$light2.light_energy = percentage * 5
@@ -243,17 +294,20 @@ func actuate_servo(id, percentage):
 			elif percentage > 0.01 and light_glows[0].get_parent() == null:
 				for light in light_glows:
 					self.add_child(light)
-
-		10:
-			if percentage < 0.4:
+		9:
+			# SERVO10: gripper, as the control software drives it
+			# (MAV_CMD_DO_SET_SERVO: 1900 open, 1100 close, 1500 stop)
+			if percentage > 0.6:
 				ljoint.set_param(6, 1)
 				rjoint.set_param(6, -1)
-			elif percentage > 0.6:
+			elif percentage < 0.4:
 				ljoint.set_param(6, -1)
 				rjoint.set_param(6, 1)
 			else:
 				ljoint.set_param(6, 0)
 				rjoint.set_param(6, 0)
+		10:
+			$Camera.rotation_degrees.x = -45 + 90 * percentage
 
 
 func _unhandled_input(event):
@@ -348,6 +402,6 @@ func process_keys():
 	elif Input.is_action_pressed("gripper_close"):
 		ljoint.set_param(6, -1)
 		rjoint.set_param(6, 1)
-	else:
+	elif not Globals.external_sitl:  # with SITL the gripper servo drives it
 		ljoint.set_param(6, 0)
 		rjoint.set_param(6, 0)
