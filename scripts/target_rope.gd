@@ -12,6 +12,7 @@ extends Spatial
 # Keys:
 #   P  place it in front of the ROV again (rebuilds it)
 #   N  next rope material
+#   M  next rope look (colour and construction, rope/rope.shader)
 #   V  next current speed
 #   K  lean the fixed rod sideways (seen from the ROV): 0, 20, 40, -20, -40 deg
 #   L  lean the fixed rod towards / away from the ROV: 0, 20, -20 deg
@@ -26,7 +27,7 @@ const RopeTypes = preload("res://scripts/rope_types.gd")
 const RopeSegment = preload("res://scripts/rope_segment.gd")
 
 const DIAMETER = 0.0508  # m
-const COLOR = Color(0.8, 0.05, 0.04)
+const RopeShader = preload("res://rope/rope.shader")
 const DISTANCE = 3.0  # m in front of the camera when placed
 const FLOOR_SEARCH = 200.0  # m along the rope to look for the floor
 const DEFAULT_LENGTH = 40.0  # m below the surface, if no floor is found
@@ -50,8 +51,8 @@ var anchor = Vector3()  # point DISTANCE m ahead of the camera when placed
 var forward = Vector3(1, 0, 0)  # ROV's level forward direction when placed
 var direction = Vector3(0, 1, 0)  # fixed rod: unit vector up the rod
 var pieces = []  # physics rope pieces, top to bottom
-var color = COLOR
-var material = null  # shared by all the rope's meshes
+var look = {}  # how it looks: an entry of RopeTypes.LOOKS (colour may be changed)
+var materials = []  # one per mesh, so the strands run on from piece to piece
 var truth_out = PacketPeerUDP.new()
 var truth_timer = 0.0
 
@@ -101,6 +102,9 @@ func _unhandled_input(event):
 	elif event.scancode == KEY_N:
 		Globals.rope_material = (Globals.rope_material + 1) % RopeTypes.MATERIALS.size()
 		build_rope()
+	elif event.scancode == KEY_M:
+		Globals.rope_look = (Globals.rope_look + 1) % RopeTypes.LOOKS.size()
+		set_look(RopeTypes.LOOKS[Globals.rope_look])
 	elif event.scancode == KEY_V:
 		var i = RopeTypes.CURRENT_SPEEDS.find(Globals.current_speed)
 		Globals.current_speed = RopeTypes.CURRENT_SPEEDS[(i + 1) % RopeTypes.CURRENT_SPEEDS.size()]
@@ -175,6 +179,7 @@ func clear_rope():
 		remove_child(child)
 		child.queue_free()
 	pieces = []
+	materials = []
 
 
 func build_rope():
@@ -185,17 +190,46 @@ func build_rope():
 		build_physics_rope()
 
 
-func rope_material():
-	material = SpatialMaterial.new()
-	material.albedo_color = color
-	material.roughness = 0.9
+# A material for a mesh that starts along_offset m along the rope; along_z:
+# the mesh runs along its Z axis (capsules) rather than Y (the rod),
+# along_sign: which way along that axis is further down the rope.
+func rope_material(along_offset, along_z, along_sign):
+	if look.empty():
+		look = RopeTypes.LOOKS[Globals.rope_look].duplicate()
+	var material = ShaderMaterial.new()
+	material.shader = RopeShader
+	material.set_shader_param("radius", DIAMETER / 2.0)
+	material.set_shader_param("lay_length", DIAMETER * 3.3)
+	material.set_shader_param("along_offset", along_offset)
+	material.set_shader_param("along_z", along_z)
+	material.set_shader_param("along_sign", along_sign)
+	apply_look(material)
+	materials.append(material)
 	return material
 
 
+func apply_look(material):
+	material.set_shader_param("base_color", look["color"])
+	material.set_shader_param("construction", float(look["construction"]))
+	material.set_shader_param("tracer", 0.0 if look["tracer"] == null else 1.0)
+	if look["tracer"] != null:
+		material.set_shader_param("tracer_color", look["tracer"])
+	material.set_shader_param("fuzz", look["fuzz"])
+
+
+# Change how the rope looks (a RopeTypes.LOOKS-style dictionary) in place.
+func set_look(new_look):
+	look = new_look.duplicate()
+	for material in materials:
+		apply_look(material)
+
+
 func set_color(c):
-	color = c
-	if material != null:
-		material.albedo_color = c
+	if look.empty():
+		look = RopeTypes.LOOKS[Globals.rope_look].duplicate()
+	look["color"] = c
+	for material in materials:
+		apply_look(material)
 
 
 func build_fixed_rod():
@@ -227,8 +261,8 @@ func build_fixed_rod():
 	mesh.bottom_radius = DIAMETER / 2.0
 	mesh.height = length
 	mesh.radial_segments = 16
-	mesh.rings = 1
-	mesh.material = rope_material()
+	mesh.rings = int(clamp(length / 0.03, 1, 2000))  # for the lumpy outline
+	mesh.material = rope_material(length / 2.0, false, -1.0)
 	var mesh_instance = MeshInstance.new()
 	mesh_instance.mesh = mesh
 	body.add_child(mesh_instance)
@@ -269,9 +303,8 @@ func build_physics_rope():
 	var mesh = CapsuleMesh.new()  # along its local Z in Godot 3
 	mesh.radius = DIAMETER / 2.0
 	mesh.mid_height = piece  # the round ends overlap the next piece, filling the bends
-	mesh.radial_segments = 12
-	mesh.rings = 2
-	mesh.material = rope_material()
+	mesh.radial_segments = 16
+	mesh.rings = 8
 	var shape = CapsuleShape.new()
 	shape.radius = DIAMETER / 2.0
 	shape.height = piece
@@ -284,7 +317,8 @@ func build_physics_rope():
 		body.collision_mask = 1
 		var mesh_instance = MeshInstance.new()
 		mesh_instance.mesh = mesh
-		mesh_instance.rotation_degrees = Vector3(90, 0, 0)  # capsule Z -> piece Y
+		mesh_instance.rotation_degrees = Vector3(90, 0, 0)  # capsule Z -> piece Y (+Z points down the rope)
+		mesh_instance.material_override = rope_material((i + 0.5) * piece, true, 1.0)
 		body.add_child(mesh_instance)
 		var collision = CollisionShape.new()
 		collision.shape = shape
@@ -386,6 +420,7 @@ func rope_from_camera():
 		"lean_ahead": rad2deg(atan2(dir[2], dir[1])),
 		"depth": surface_y() - cam.origin.y,
 		"rope": RopeTypes.MATERIALS[Globals.rope_material]["key"],
+		"look": look.get("key", ""),
 		"setup": RopeTypes.SETUPS[Globals.rope_setup]["key"],
 		"current": Globals.current_speed,
 		"diameter": DIAMETER,
@@ -406,7 +441,7 @@ func rope_from_camera():
 
 func update_label(truth):
 	label.rect_position = Vector2(10, get_tree().get_root().size.y - 30)
-	var kind = RopeTypes.MATERIALS[Globals.rope_material]["name"]
-	label.text = "Rope: %.2f m ahead, %.2f m %s, lean %d/%d deg  [%s, current %.2f m/s]   P: move  N: rope  V: current  K/L: lean" % [
+	var kind = RopeTypes.MATERIALS[Globals.rope_material]["name"] + ", " + look.get("name", "")
+	label.text = "Rope: %.2f m ahead, %.2f m %s, lean %d/%d deg  [%s, current %.2f m/s]   P: move  N: rope  M: look  V: current  K/L: lean" % [
 		truth["ahead"], abs(truth["right"]), "right" if truth["right"] >= 0 else "left",
 		truth["lean_side"], truth["lean_ahead"], kind, Globals.current_speed]

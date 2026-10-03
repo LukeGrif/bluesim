@@ -8,7 +8,8 @@ const RopeTypes = preload("res://scripts/rope_types.gd")
 
 func _ready():
 	columns = 2
-	add_choice("Rope", names(RopeTypes.MATERIALS), Globals.rope_material, "_on_material")
+	add_choice("Rope material", names(RopeTypes.MATERIALS), Globals.rope_material, "_on_material")
+	add_choice("Rope look", names(RopeTypes.LOOKS), Globals.rope_look, "_on_look")
 	add_choice("Rope setup", names(RopeTypes.SETUPS), Globals.rope_setup, "_on_setup")
 	var lengths = []
 	for l in RopeTypes.LENGTHS:
@@ -45,6 +46,10 @@ func add_choice(title, items, selected, method):
 
 func _on_material(index):
 	Globals.rope_material = index
+
+
+func _on_look(index):
+	Globals.rope_look = index
 
 
 func _on_setup(index):

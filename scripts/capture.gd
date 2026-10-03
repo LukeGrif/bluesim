@@ -141,14 +141,7 @@ func new_scene():
 	Globals.current_direction = rng.randi_range(0, RopeTypes.CURRENT_DIRECTIONS.size() - 1)
 	rope.lean_side = rng.randi_range(0, rope.LEANS_SIDE.size() - 1)
 	rope.lean_ahead = rng.randi_range(0, rope.LEANS_AHEAD.size() - 1)
-	var color
-	if rng.randf() < 0.6:  # mostly reds, like the real rope
-		color = Color.from_hsv(fposmod(rng.randf_range(-0.05, 0.04), 1.0), rng.randf_range(0.6, 1.0), rng.randf_range(0.35, 0.9))
-	else:
-		color = Color.from_hsv(rng.randf(), rng.randf_range(0.3, 1.0), rng.randf_range(0.2, 1.0))
-	rope.set_color(color)
 	rope.place_at(point, ahead)
-	rope.set_color(color)
 	Globals.post_type = rng.randi_range(0, RopeTypes.POSTS.size() - 1)
 	var right = Vector3(-ahead.z, 0, ahead.x)
 	post.place_at(point + right * rng.randf_range(-2.0, 2.0) + ahead * rng.randf_range(-1.5, 1.5))
@@ -157,8 +150,32 @@ func new_scene():
 		"setup": RopeTypes.SETUPS[Globals.rope_setup]["key"],
 		"length": Globals.rope_length,
 		"current": Globals.current_speed,
-		"rope_color": [color.r, color.g, color.b],
 	}
+
+
+# A random rope look: twisted or braided (sometimes smooth), coloured like a
+# marine rope (or a red like the real one, or anything), sometimes with a
+# tracer/fleck or loose fibres, so a detector learns the rope's shape and
+# texture rather than one colour.
+func random_look():
+	var r = rng.randf()
+	var construction = 0 if r < 0.45 else (1 if r < 0.9 else 2)
+	var color
+	r = rng.randf()
+	if r < 0.35:  # reds like the real rope
+		color = Color.from_hsv(fposmod(rng.randf_range(-0.05, 0.04), 1.0), rng.randf_range(0.6, 1.0), rng.randf_range(0.35, 0.9))
+	elif r < 0.8:  # a marine rope colour, varied a little
+		var base = RopeTypes.LOOKS[rng.randi_range(0, RopeTypes.LOOKS.size() - 1)]["color"]
+		color = Color.from_hsv(fposmod(base.h + rng.randf_range(-0.03, 0.03), 1.0),
+			clamp(base.s * rng.randf_range(0.8, 1.2), 0.0, 1.0), clamp(base.v * rng.randf_range(0.7, 1.2), 0.03, 1.0))
+	else:  # anything
+		color = Color.from_hsv(rng.randf(), rng.randf_range(0.0, 1.0), rng.randf_range(0.1, 1.0))
+	var tracer = null
+	if construction < 2 and rng.randf() < 0.3:
+		var tracers = [Color(0.9, 0.9, 0.9), Color(0.75, 0.05, 0.05), Color(0.05, 0.2, 0.7), Color(0.95, 0.75, 0.05), Color(0.03, 0.03, 0.03)]
+		tracer = tracers[rng.randi_range(0, tracers.size() - 1)] if rng.randf() < 0.8 else Color.from_hsv(rng.randf(), 0.8, 0.8)
+	var fuzz = rng.randf_range(0.3, 1.0) if construction == 0 and rng.randf() < 0.15 else 0.0
+	return {"key": "random", "name": "random", "construction": construction, "color": color, "tracer": tracer, "fuzz": fuzz}
 
 
 # Water, light and a camera pose looking at (or, sometimes, away from) the rope.
@@ -214,6 +231,13 @@ func new_view():
 	lamp.light_energy = rng.randf_range(0.0, 4.0) if rng.randf() < 0.7 else 0.0
 	if sun != null:
 		sun.light_energy = rng.randf_range(0.0, 1.0)
+	# a new rope look for every picture (it's only a change of colours in the shader)
+	var look = random_look()
+	rope.set_look(look)
+	info["rope_color"] = [look["color"].r, look["color"].g, look["color"].b]
+	info["construction"] = ["3-strand", "braided", "smooth"][look["construction"]]
+	info["tracer"] = look["tracer"] != null
+	info["fuzz"] = look["fuzz"]
 	info["looking_away"] = looking_away
 	info["visibility_m"] = environment.fog_depth_end
 	info["water_color"] = [tint.r, tint.g, tint.b]

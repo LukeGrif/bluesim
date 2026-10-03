@@ -66,6 +66,7 @@ the **menu** (under Pool), or before starting with environment variables:
 | Menu | Choices | Environment variable |
 |---|---|---|
 | Rope | Fixed rod (no physics), Polypropylene (floats, 910 kg/m³), Dyneema/HMPE (floats slightly, 975), Nylon (sinks slowly, 1140), Polyester (sinks, 1380), Lead-core (sinks fast, 2000) | `BLUESIM_ROPE=nylon,hanging,10` (material, setup, length) |
+| Rope look | Red 3-strand, Blue polypropylene 3-strand, Yellow polypropylene 3-strand, Orange 3-strand, Green 3-strand, White nylon 3-strand, Manila (natural fibre) 3-strand, Navy braid with white fleck, White braid with red tracer, Royal blue braid, Black braid, Smooth red (the old plain rope) | `BLUESIM_ROPE_LOOK=blue` (`red`, `blue`, `yellow`, `orange`, `green`, `white`, `manila`, `navy_braid`, `white_braid`, `blue_braid`, `black_braid`, `smooth_red`) |
 | Rope setup | Surface to floor (pinned at both), Hanging from the surface (free bottom end), Standing on the floor (free top end) | |
 | Rope length | 5, 10, 20 m (for a free end) | |
 | Current / from | none, 0.1, 0.25, 0.5 m/s; from the left, right, ahead, behind (relative to the ROV when the rope is placed) | `BLUESIM_CURRENT=0.25,left` |
@@ -78,9 +79,27 @@ Material keys: `fixed`, `polypropylene`, `dyneema`, `nylon`, `polyester`,
 |---|---|
 | P | put the rope 3 m in front of the ROV again (rebuilds it) |
 | N | next rope material |
+| M | next rope look |
 | V | next current speed |
 | K / L | lean the fixed rod sideways (0, 20, 40, -20, -40°) / towards or away (0, 20, -20°) |
 | J | put the post 3 m ahead and 1.5 m right of the ROV (a pile if none was chosen) |
+
+### Rope look
+
+The rope is drawn by a procedural shader (`rope/rope.shader`, no textures)
+that looks like real marine rope close up:
+
+- **3-strand (laid)**: three strands twisted round each other with dark
+  grooves between them, yarns running across each strand, fibre texture and
+  a scalloped outline;
+- **braided**: a 16-carrier over-under cover, like double braid;
+- **tracer / fleck**: coloured yarns in one strand or two carriers
+  (e.g. navy with white fleck, white with a red tracer);
+- **fuzz**: loose fibres for natural rope (manila).
+
+The pattern runs on continuously along the physics rope and its colour is a
+setting, so any colour can be made (the training capture uses random ones).
+The look doesn't change the physics (choose the material separately).
 
 ### Rope physics
 
@@ -166,8 +185,11 @@ the BlueROV2's (1920x1080, 80° horizontal; `BLUESIM_CAPTURE_SIZE=960x540`
 for smaller ones) at a random distance (0.25–4 m) and angle around the rope,
 with randomised:
 
-- rope: material, setup, length, current, lean, colour (60 % reds like the
-  real rope, the rest any colour, so the model learns its shape too)
+- rope: material, setup, length, current, lean (each new rope), and for
+  every picture its look: 3-strand, braided or smooth; colour (35 % reds like
+  the real rope, 45 % marine rope colours, 20 % anything); 30 % with a
+  tracer/fleck; some with loose fibres. So a detector has to learn the rope's
+  shape and texture, not one colour
 - post: none, pile or pole, near the rope (it hides the rope sometimes)
 - water: tint and visibility (2–30 m), ambient light, sun, the ROV's lamp
 - view: the rope anywhere in the picture, about 1 in 10 looking away (no rope)

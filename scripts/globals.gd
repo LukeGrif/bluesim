@@ -26,9 +26,11 @@ var external_sitl = false
 #   BLUESIM_ROPE=nylon,hanging,10     material, setup, length (m)
 #   BLUESIM_CURRENT=0.25,left         speed (m/s), where it comes from
 #   BLUESIM_POST=pile                 none, pile or pole
+#   BLUESIM_ROPE_LOOK=blue            red, blue, navy_braid, ... (RopeTypes.LOOKS)
 var rope_material = 0  # index into RopeTypes.MATERIALS
 var rope_setup = 0  # index into RopeTypes.SETUPS
 var rope_length = 10.0
+var rope_look = 0  # index into RopeTypes.LOOKS
 var current_speed = 0.0
 var current_direction = 0  # index into RopeTypes.CURRENT_DIRECTIONS
 var current_velocity = Vector3()  # world frame, set when the rope is placed
@@ -57,6 +59,9 @@ func read_test_settings_from_environment():
 		current_speed = max(0.0, float(current[0]))
 	if current.size() >= 2 and RopeTypes.find(RopeTypes.CURRENT_DIRECTIONS, current[1]) >= 0:
 		current_direction = RopeTypes.find(RopeTypes.CURRENT_DIRECTIONS, current[1])
+	var look = RopeTypes.find(RopeTypes.LOOKS, OS.get_environment("BLUESIM_ROPE_LOOK").to_lower())
+	if look >= 0:
+		rope_look = look
 	var post = RopeTypes.find(RopeTypes.POSTS, OS.get_environment("BLUESIM_POST").to_lower())
 	if post >= 0:
 		post_type = post

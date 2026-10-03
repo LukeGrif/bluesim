@@ -480,7 +480,8 @@ ESC - Graphics settings
 C - switch camera//vehicle
 R - reset position
 P - put the red rope 3 m in front of the ROV
-N - next rope type   V - current speed
+N / M - next rope type / look
+V - current speed
 K / L - lean the fixed rope sideways / towards
 J - put a post beside the rope
 

@@ -23,6 +23,24 @@ const SETUPS = [
 	{"key": "standing", "name": "Standing on the floor"},
 ]
 
+# What the rope looks like (rope/rope.shader), separate from what it's made
+# of: construction 0 = 3-strand twisted, 1 = braided cover, 2 = smooth.
+# tracer = colour of the fleck/tracer yarns (or null), fuzz = loose fibres.
+const LOOKS = [
+	{"key": "red", "name": "Red 3-strand", "construction": 0, "color": Color(0.72, 0.06, 0.05), "tracer": null, "fuzz": 0.0},
+	{"key": "blue", "name": "Blue polypropylene 3-strand", "construction": 0, "color": Color(0.04, 0.22, 0.7), "tracer": null, "fuzz": 0.0},
+	{"key": "yellow", "name": "Yellow polypropylene 3-strand", "construction": 0, "color": Color(0.95, 0.72, 0.04), "tracer": null, "fuzz": 0.0},
+	{"key": "orange", "name": "Orange 3-strand", "construction": 0, "color": Color(0.95, 0.38, 0.03), "tracer": null, "fuzz": 0.0},
+	{"key": "green", "name": "Green 3-strand", "construction": 0, "color": Color(0.08, 0.4, 0.14), "tracer": null, "fuzz": 0.0},
+	{"key": "white", "name": "White nylon 3-strand", "construction": 0, "color": Color(0.88, 0.88, 0.84), "tracer": null, "fuzz": 0.0},
+	{"key": "manila", "name": "Manila (natural fibre) 3-strand", "construction": 0, "color": Color(0.7, 0.55, 0.33), "tracer": null, "fuzz": 1.0},
+	{"key": "navy_braid", "name": "Navy braid, white fleck", "construction": 1, "color": Color(0.04, 0.07, 0.25), "tracer": Color(0.9, 0.9, 0.9), "fuzz": 0.0},
+	{"key": "white_braid", "name": "White braid, red tracer", "construction": 1, "color": Color(0.9, 0.9, 0.87), "tracer": Color(0.75, 0.05, 0.05), "fuzz": 0.0},
+	{"key": "blue_braid", "name": "Royal blue braid", "construction": 1, "color": Color(0.05, 0.2, 0.65), "tracer": null, "fuzz": 0.0},
+	{"key": "black_braid", "name": "Black braid", "construction": 1, "color": Color(0.04, 0.04, 0.045), "tracer": null, "fuzz": 0.0},
+	{"key": "smooth_red", "name": "Smooth red (plain test rope)", "construction": 2, "color": Color(0.8, 0.05, 0.04), "tracer": null, "fuzz": 0.0},
+]
+
 const LENGTHS = [5.0, 10.0, 20.0]  # m, for a rope with a free end
 
 const CURRENT_SPEEDS = [0.0, 0.1, 0.25, 0.5]  # m/s
