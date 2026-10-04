@@ -38,6 +38,7 @@ const GRASP_AFTER = 0.5  # s of closing
 const ROPE_LAYER = 1 << 10  # target_rope.gd's physics pieces
 var gripper_command = 0  # 1 opening, -1 closing, 0 stopped
 var gripper_closed = false
+var last_gripper_servo = 0  # last SERVO10 command seen: 1 open, -1 close, 0 stop
 var closing_time = 0.0
 var grasp_area = null
 var grasp_joint = null
@@ -419,19 +420,19 @@ func actuate_servo(id, percentage):
 					self.add_child(light)
 		9:
 			# SERVO10: gripper, as the control software drives it
-			# (MAV_CMD_DO_SET_SERVO: 1900 open, 1100 close, 1500 stop)
-			if percentage > 0.6:
-				ljoint.set_param(6, 1)
-				rjoint.set_param(6, -1)
-				gripper_command = 1
-			elif percentage < 0.4:
-				ljoint.set_param(6, -1)
-				rjoint.set_param(6, 1)
-				gripper_command = -1
-			else:
-				ljoint.set_param(6, 0)
-				rjoint.set_param(6, 0)
-				gripper_command = 0
+			# (MAV_CMD_DO_SET_SERVO: 1900 open, 1100 close, 1500 stop).
+			# The app opens/closes with a 2 s pulse, which moves the real
+			# gripper all the way; a slow computer runs BlueSim slower than
+			# real time, so the same 2 s would only open it partly. So a pulse
+			# moves the jaws all the way (the hinge limits stop them), and only
+			# a change of the servo is acted on, so the keys work too.
+			var command = 1 if percentage > 0.6 else (-1 if percentage < 0.4 else 0)
+			if command != last_gripper_servo:
+				last_gripper_servo = command
+				if command != 0:
+					ljoint.set_param(6, command)
+					rjoint.set_param(6, -command)
+					gripper_command = command
 		10:
 			$Camera.rotation_degrees.x = -45 + 90 * percentage
 

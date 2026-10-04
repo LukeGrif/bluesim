@@ -141,7 +141,9 @@ surface.
 When the gripper has been **closing for 0.5 s with a rope piece between the
 jaws**, that piece is pinned to the ROV (simulated jaws can't reliably
 squeeze a rope); it stays held until the gripper **opens**. Close with the app's
-gripper buttons (servo 10) or key 4, open with key 3. The rope is then towed by
+gripper buttons (servo 10) or key 4, open with key 3. An open or close command
+from the app (a 2 s pulse, which opens the real gripper fully) moves the jaws
+all the way, however slowly BlueSim runs. The rope is then towed by
 the ROV, with its drag and weight acting on the ROV. The log prints
 `Gripper: holding the rope` / `let go of the rope`. Tested: centred on a
 hanging nylon rope, closed, and reversed: the rope stayed in the jaws and was
