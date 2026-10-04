@@ -182,27 +182,44 @@ BLUESIM_CAPTURE=~/rope_data BLUESIM_CAPTURE_COUNT=2000 ./run_bluesim.sh
 goes straight to the pool (no SITL) and saves pictures with exact labels for
 training a rope detector, then quits. Each picture is taken by a camera like
 the BlueROV2's (1920x1080, 80° horizontal; `BLUESIM_CAPTURE_SIZE=960x540`
-for smaller ones) at a random distance (0.25–4 m) and angle around the rope,
+for smaller ones), in one of two ways:
+
+- **ROV view (60 %)**: from the ROV's own camera tilted down 25–45° (some
+  less) so the gripper's jaws are at the bottom of the picture, as they will
+  be in most real footage. For each picture the ROV is moved next to the
+  rope: approaching it (0.35–2.5 m), at the jaws, with the rope in the jaws,
+  or with the rope off to one side. The jaws are open or closed per rope.
+- **orbit view (40 %)**: from anywhere 0.25–4 m around the rope (a quarter
+  of these aimed at the ROV's tether), about 1 in 10 looking away (no rope).
+
 with randomised:
 
 - rope: material, setup, length, current, lean (each new rope), and for
-  every picture its look: 3-strand, braided or smooth; colour (35 % reds like
-  the real rope, 45 % marine rope colours, 20 % anything); 30 % with a
-  tracer/fleck; some with loose fibres. So a detector has to learn the rope's
-  shape and texture, not one colour
+  every picture its look: 3-strand, braided or smooth; colour (30 % reds like
+  the real rope, 15 % yellows, 35 % marine rope colours, 20 % anything); 30 %
+  with a tracer/fleck; some with loose fibres. So a detector has to learn the
+  rope's shape and texture, not one colour
+- **hard negatives**: 0–2 tether-like cables per picture (smooth, 6–16 mm,
+  half yellow like a Fathom tether, otherwise blue, black, white, orange,
+  green, grey): crossing the rope, lying alongside it (4–35 cm away), or in
+  front of the camera/gripper, half of those looped. The ROV's own tether
+  also gets a random colour. With yellow ropes too, colour alone never
+  separates rope from tether
 - post: none, pile or pole, near the rope (it hides the rope sometimes)
 - water: tint and visibility (2–30 m), ambient light, sun, the ROV's lamp
-- view: the rope anywhere in the picture, about 1 in 10 looking away (no rope)
 
-The ROV and its tether are in the pool too, as distractors. A new rope is
-built every 20 pictures; the physics runs a little between pictures and is
-paused for each one, so the label matches it exactly. `BLUESIM_CAPTURE_SEED`
+A new rope is built every 20 pictures; the physics runs a little between
+pictures and is paused for each one, so the label matches it exactly (the
+ROV is put back before the physics runs again). `BLUESIM_CAPTURE_SEED`
 (default 1) makes a set repeatable.
 
-Output: `images/NNNNNN.png` and `labels/NNNNNN.json` (camera model `fx fy cx
-cy`, the rope's centre line in camera coordinates and its diameter, the post,
-the settings). `Rope_Detection/dataset/make_masks.py` turns the labels into
-masks (the rope as seen, and the whole rope including hidden parts).
+Output: `images/NNNNNN.png`, `rov_depth/NNNNNN.png` (the distance to the
+ROV's own parts, rendered, so the masks know where the jaws hide the rope)
+and `labels/NNNNNN.json` (camera model `fx fy cx cy`, the rope's centre line
+in camera coordinates and its diameter, the ROV's tether, the cables, the
+post, the settings including `view`, `phase` and `camera_tilt_deg`).
+`Rope_Detection/dataset/make_masks.py` turns them into masks and a class
+picture (background, rope, tether, ROV).
 
 # SITL integration:
 

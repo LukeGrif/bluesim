@@ -530,7 +530,7 @@ func process_keys():
 		ljoint.set_param(6, -1)
 		rjoint.set_param(6, 1)
 		gripper_command = -1
-	elif not Globals.external_sitl:  # with SITL the gripper servo drives it
+	elif not Globals.external_sitl and not Globals.capturing:  # with SITL the gripper servo drives it (capture sets the jaws itself)
 		ljoint.set_param(6, 0)
 		rjoint.set_param(6, 0)
 		gripper_command = 0
