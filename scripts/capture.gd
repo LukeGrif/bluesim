@@ -42,6 +42,33 @@ const ROV_VIEW_FRACTION = 0.6  # pictures from the ROV's camera, gripper in view
 const JAWS = Vector3(0, -0.26, 0.12)  # middle of the jaws from the camera, ROV frame (forward +Z)
 const DEPTH_LAYER = 19  # render layer of the ROV's depth copies (only the depth camera sees it)
 const DEPTH_MAX = 4.0  # m, distance range of rov_depth/ pictures
+const SCENE_LAYER = 18  # render layer of the rope, tether and cables (hidden from the scene-depth camera)
+const SCENE_QUAD_LAYER = 17  # render layer of the scene-depth camera's full-screen quad (only it sees it)
+const SCENE_DEPTH_MAX = 30.0  # m, distance range of scene_depth/ pictures
+# The scene-depth camera's picture: every pixel's distance to whatever the
+# world has there (walls, floor, pilings, a wreck, the ROV), from the depth
+# buffer, in the same encoding as DEPTH_SHADER (blue 1 = nothing: open water).
+const SCENE_DEPTH_SHADER = """
+shader_type spatial;
+render_mode unshaded, cull_disabled, depth_draw_never, depth_test_disable, shadows_disabled;
+uniform float max_depth = 30.0;
+void vertex() {
+	POSITION = vec4(VERTEX.xy * 2.0, 0.0, 1.0);  // the whole screen
+}
+void fragment() {
+	float d = texture(DEPTH_TEXTURE, SCREEN_UV).r;
+	if (d >= 0.99999) {
+		ALBEDO = vec3(1.0);
+	} else {
+		vec3 ndc = vec3(SCREEN_UV, d) * 2.0 - 1.0;
+		vec4 view = INV_PROJECTION_MATRIX * vec4(ndc, 1.0);
+		view.xyz /= view.w;
+		float x = clamp(length(view.xyz) / max_depth, 0.0, 0.9999);
+		ALBEDO = vec3(floor(x * 255.0) / 255.0, fract(x * 255.0), 0.0);
+	}
+	ALPHA = 1.0;
+}
+"""
 const DEPTH_SHADER = """
 shader_type spatial;
 render_mode unshaded, cull_disabled, shadows_disabled;
@@ -76,6 +103,8 @@ var ljoint = null
 var rjoint = null
 var depth_viewport = null
 var depth_camera = null
+var scene_viewport = null
+var scene_camera = null
 var cables = []  # this picture's tether-like cables: {node, diameter, points, kind}
 
 
@@ -97,6 +126,7 @@ func _ready():
 	dir.make_dir_recursive(folder + "/images")
 	dir.make_dir_recursive(folder + "/labels")
 	dir.make_dir_recursive(folder + "/rov_depth")
+	dir.make_dir_recursive(folder + "/scene_depth")
 	print("Capture: %d pictures, %dx%d, into %s" % [count, size.x, size.y, folder])
 
 
@@ -125,6 +155,7 @@ func setup_camera():
 	camera.current = true
 	sun = get_tree().get_root().find_node("sun", true, false)
 	setup_rov_depth(rov_camera)
+	setup_scene_depth()
 
 
 # A second camera that sees only copies of the ROV's parts, drawn as their
@@ -167,6 +198,63 @@ func setup_rov_depth(rov_camera):
 		add_depth_copies(body, material)
 
 
+# A third camera that sees the world without the rope, tether and cables
+# (moved to SCENE_LAYER), rendering a full-screen quad that turns its depth
+# buffer into distances: make_masks.py hides the rope wherever something
+# (a piling, a wreck, the floor) is in front of it, in any world.
+func setup_scene_depth():
+	for c in all_cameras(get_tree().get_root()):  # no other camera draws the quad
+		c.cull_mask &= ~(1 << SCENE_QUAD_LAYER)
+	scene_viewport = Viewport.new()
+	scene_viewport.size = size
+	scene_viewport.render_target_update_mode = Viewport.UPDATE_ALWAYS
+	scene_viewport.hdr = false
+	scene_viewport.keep_3d_linear = true
+	scene_viewport.shadow_atlas_size = 0
+	scene_camera = Camera.new()
+	scene_camera.keep_aspect = Camera.KEEP_WIDTH
+	scene_camera.fov = HFOV
+	scene_camera.near = camera.near
+	scene_camera.far = camera.far
+	scene_camera.cull_mask = (camera.cull_mask & ~(1 << SCENE_LAYER) & ~(1 << DEPTH_LAYER)) | (1 << SCENE_QUAD_LAYER)
+	var env = Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(1, 1, 1)
+	scene_camera.environment = env
+	scene_viewport.add_child(scene_camera)
+	add_child(scene_viewport)
+	scene_camera.current = true
+	var material = ShaderMaterial.new()
+	material.shader = Shader.new()
+	material.shader.code = SCENE_DEPTH_SHADER
+	material.set_shader_param("max_depth", SCENE_DEPTH_MAX)
+	var quad = MeshInstance.new()
+	quad.mesh = QuadMesh.new()
+	quad.material_override = material
+	quad.layers = 1 << SCENE_QUAD_LAYER
+	quad.cast_shadow = GeometryInstance.SHADOW_CASTING_SETTING_OFF
+	quad.extra_cull_margin = 16384
+	quad.transform = Transform(Basis(), Vector3(0, 0, -1))
+	scene_camera.add_child(quad)
+
+
+func all_cameras(node):
+	var out = []
+	if node is Camera:
+		out.append(node)
+	for child in node.get_children():
+		out += all_cameras(child)
+	return out
+
+
+# Move a node's meshes to SCENE_LAYER (still drawn by the capture camera).
+func hide_from_scene_depth(node):
+	if node is MeshInstance:
+		node.layers = 1 << SCENE_LAYER
+	for child in node.get_children():
+		hide_from_scene_depth(child)
+
+
 func add_depth_copies(node, material):
 	for child in node.get_children():
 		add_depth_copies(child, material)
@@ -200,6 +288,7 @@ func _process(delta):
 			get_tree().paused = true
 			new_view()
 			depth_camera.global_transform = camera.global_transform
+			scene_camera.global_transform = camera.global_transform
 			frames = 3  # let the new view render
 			state = "render"
 	elif state == "render":
@@ -296,6 +385,9 @@ func new_view():
 		near = orbit_view(points, surface, tether)
 	add_cables(near[0], near[1], surface)
 	set_looks(tether)
+	hide_from_scene_depth(rope)
+	for piece in tether:
+		hide_from_scene_depth(piece)
 
 # The camera somewhere around a point on the rope (or the tether).
 func orbit_view(points, surface, tether):
@@ -524,7 +616,7 @@ func add_cables(anchor, along, surface):
 		var node = MeshInstance.new()
 		node.mesh = tube_mesh(points, diameter / 2.0)
 		node.material_override = material
-		node.layers = 1
+		node.layers = 1 << SCENE_LAYER
 		add_child(node)
 		cables.append({"node": node, "diameter": diameter, "points": points})
 		kinds.append(kind)
@@ -641,6 +733,10 @@ func save():
 	depth.flip_y()
 	depth.convert(Image.FORMAT_RGB8)
 	depth.save_png(folder + "/rov_depth/" + name + ".png")
+	var scene_depth = scene_viewport.get_texture().get_data()
+	scene_depth.flip_y()
+	scene_depth.convert(Image.FORMAT_RGB8)
+	scene_depth.save_png(folder + "/scene_depth/" + name + ".png")
 	var cam = camera.global_transform
 	var cable_labels = []
 	for c in cables:
@@ -662,6 +758,9 @@ func save():
 		"cables": cable_labels,
 		"rov_depth": "rov_depth/" + name + ".png",
 		"rov_depth_max_m": DEPTH_MAX,
+		"scene_depth": "scene_depth/" + name + ".png",
+		"scene_depth_max_m": SCENE_DEPTH_MAX,
+		"level": Globals.active_level,
 		"post": null,
 		"settings": info,
 	}

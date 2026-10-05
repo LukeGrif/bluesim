@@ -123,11 +123,12 @@ func _ready():
 	$HBoxContainer/Menu/Buttons.visible = false
 
 	if Globals.capturing:
-		# training-data capture (scripts/capture.gd): straight to the pool, no SITL
+		# training-data capture (scripts/capture.gd): straight to the world
+		# (BLUESIM_LEVEL, default the pool), no SITL
 		add_status(\"Capturing training pictures\")
 		Globals.external_sitl = true
 		OS.vsync_enabled = false
-		call_deferred(\"_on_poolLevel_pressed\")
+		call_deferred(\"_start_level_from_env\")
 		return
 
 	if _use_external_sitl():
@@ -139,6 +140,8 @@ func _ready():
 		# swap, which stops the physics and with it the SITL clock.
 		OS.vsync_enabled = false
 		$HBoxContainer/Menu/Buttons.visible = true
+		if OS.get_environment(\"BLUESIM_LEVEL\") != \"\":
+			call_deferred(\"_start_level_from_env\")  # straight into that world
 		return
 
 	if OS.get_name() == \"Windows\":
@@ -164,6 +167,34 @@ func _use_external_sitl():
 	if \"--external-sitl\" in OS.get_cmdline_args():
 		return true
 	return OS.get_environment(\"BLUESIM_EXTERNAL_SITL\").to_lower() in [\"1\", \"true\", \"yes\"]
+
+# BLUESIM_LEVEL picks the world without the menu: pool (default), a .pck
+# level (e.g. sunken_ship.pck: an absolute path, or a file in the levels
+# folder next to the Godot program or in the project's levels folder), or a
+# scene in the project (e.g. res://levels/harbour.tscn).
+func _start_level_from_env():
+	var level = OS.get_environment(\"BLUESIM_LEVEL\")
+	if level == \"\" or level == \"pool\":
+		_on_poolLevel_pressed()
+		return
+	Globals.active_vehicle = \"bluerovheavy\"
+	if level.ends_with(\".pck\"):
+		var candidates = [level, LevelLoader.new().bin_path + \"/levels/\" + level, ProjectSettings.globalize_path(\"res://levels/\" + level)]
+		var loaded = false
+		for path in candidates:
+			if File.new().file_exists(path) and ProjectSettings.load_resource_pack(path):
+				loaded = true
+				break
+		if not loaded:
+			add_status(\"Can't load level %s: using the pool\" % level)
+			print(\"Can't load level %s (tried %s): using the pool\" % [level, candidates])
+			_on_poolLevel_pressed()
+			return
+		Globals.active_level = \"res://custom_level.tscn\"
+	else:
+		Globals.active_level = level if level.begins_with(\"res://\") else \"res://levels/\" + level
+	print(\"Level: %s\" % Globals.active_level)
+	SceneLoader.goto_scene(\"res://levels/baselevel.tscn\")
 
 func _on_poolLevel_pressed():
 	Globals.active_vehicle = \"bluerovheavy\"

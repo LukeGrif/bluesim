@@ -185,7 +185,8 @@ leans right / away); `points`: the whole centre line, top to bottom;
 BLUESIM_CAPTURE=~/rope_data BLUESIM_CAPTURE_COUNT=2000 ./run_bluesim.sh
 ```
 
-goes straight to the pool (no SITL) and saves pictures with exact labels for
+goes straight to the pool (or another world, `BLUESIM_LEVEL` below; no
+SITL) and saves pictures with exact labels for
 training a rope detector, then quits. Each picture is taken by a camera like
 the BlueROV2's (1920x1080, 80° horizontal; `BLUESIM_CAPTURE_SIZE=960x540`
 for smaller ones), in one of two ways:
@@ -222,8 +223,11 @@ ROV is put back before the physics runs again). `BLUESIM_CAPTURE_SEED`
 (default 1) makes a set repeatable.
 
 Output: `images/NNNNNN.png`, `rov_depth/NNNNNN.png` (the distance to the
-ROV's own parts, rendered, so the masks know where the jaws hide the rope)
-and `labels/NNNNNN.json` (camera model `fx fy cx cy`, the rope's centre line
+ROV's own parts, rendered, so the masks know where the jaws hide the rope),
+`scene_depth/NNNNNN.png` (the distance to the world itself: walls, floor,
+pilings, a wreck, everything but the rope, tether and cables, so the masks
+hide the rope wherever the world is in front of it, in any world; up to
+30 m) and `labels/NNNNNN.json` (camera model `fx fy cx cy`, the rope's centre line
 in camera coordinates and its diameter, the ROV's tether, the cables, the
 post, the settings including `view`, `phase` and `camera_tilt_deg`).
 `Rope_Detection/dataset/make_masks.py` turns them into masks and a class
@@ -241,6 +245,19 @@ External levels can be loaded by placing a .pck file in the "levels" folder at t
 
 The pck file must have a `custom_level.tscn` scene, which will be loaded in runtime and added as a child to `baselevel.tscn`, which contains the ROV, water, sky, and other basic functionality.
 The root node at "custom_level.tscn" should preferably be a spatial node with all your custom 3D scene within it.
+
+`BLUESIM_LEVEL` starts a world without the menu (for captures, or with
+`run_bluesim.sh`):
+
+| `BLUESIM_LEVEL=` | world |
+|---|---|
+| `pool` (default) | the pool |
+| `harbour.tscn` (or `res://levels/harbour.tscn`) | a test harbour: sandy seabed 14 m down, wooden pilings and a box-shaped wreck near the rope, rocks |
+| `sunken_ship.pck` | a .pck level: a full path, or a file in the `levels` folder next to the Godot program or in this project's `levels/` folder |
+
+The test rope is put 3 m in front of the ROV in any world. For training
+pictures from several worlds, `Rope_Detection/dataset/collect_sim.sh` takes
+`LEVELS="pool harbour.tscn sunken_ship.pck"` (one world per run, in turn).
 
 ## Sunken Ship Level
 
