@@ -8,7 +8,7 @@ extends Node
 #   BLUESIM_CAPTURE_SIZE=1920x1080    picture size (default: the BlueROV2 camera's)
 #   BLUESIM_CAPTURE_SEED=1            random seed (default 1, for a repeatable set)
 # Every picture is taken by a camera like the BlueROV2's (80 deg horizontal
-# field of view), with randomised rope (type, lean, current, look), post,
+# field of view), with randomised rope (type, lean, current, look),
 # water (colour, visibility) and light, in one of two ways:
 # - ROV view (most pictures): from the ROV's own camera, tilted down so the
 #   gripper is in the picture, with the ROV approaching the rope, at the jaws
@@ -228,7 +228,8 @@ func new_scene():
 	ahead.y = 0
 	ahead = ahead.normalized()
 	var point = rov_camera.global_transform.origin + ahead * 3.0
-	Globals.rope_material = rng.randi_range(0, RopeTypes.MATERIALS.size() - 1)
+	# a real (physics) rope: never the fixed rod, a featureless straight pole
+	Globals.rope_material = rng.randi_range(1, RopeTypes.MATERIALS.size() - 1)
 	Globals.rope_setup = rng.randi_range(0, RopeTypes.SETUPS.size() - 1)
 	Globals.rope_length = RopeTypes.LENGTHS[rng.randi_range(0, RopeTypes.LENGTHS.size() - 1)]
 	Globals.current_speed = RopeTypes.CURRENT_SPEEDS[rng.randi_range(0, RopeTypes.CURRENT_SPEEDS.size() - 1)]
@@ -236,9 +237,9 @@ func new_scene():
 	rope.lean_side = rng.randi_range(0, rope.LEANS_SIDE.size() - 1)
 	rope.lean_ahead = rng.randi_range(0, rope.LEANS_AHEAD.size() - 1)
 	rope.place_at(point, ahead)
-	Globals.post_type = rng.randi_range(0, RopeTypes.POSTS.size() - 1)
-	var right = Vector3(-ahead.z, 0, ahead.x)
-	post.place_at(point + right * rng.randf_range(-2.0, 2.0) + ahead * rng.randf_range(-1.5, 1.5))
+	# no test post (pile/pole) in the pictures: it isn't in the real scenes
+	Globals.post_type = 0
+	post.place_at(point)
 	# the jaws open or closed for this scene (they move while it settles)
 	var jaws_open = rng.randf() < 0.6
 	set_jaws(1.0 if jaws_open else -1.0)
@@ -251,13 +252,13 @@ func new_scene():
 	}
 
 
-# A random rope look: twisted or braided (sometimes smooth), coloured like a
+# A random rope look: twisted or braided (not smooth: real ropes have strands), coloured like a
 # marine rope (or a red like the real one, or anything), sometimes with a
 # tracer/fleck or loose fibres, so a detector learns the rope's shape and
 # texture rather than one colour.
 func random_look():
 	var r = rng.randf()
-	var construction = 0 if r < 0.45 else (1 if r < 0.9 else 2)
+	var construction = 0 if r < 0.5 else 1
 	var color
 	r = rng.randf()
 	if r < 0.3:  # reds like the real rope

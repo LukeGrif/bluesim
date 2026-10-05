@@ -200,8 +200,10 @@ for smaller ones), in one of two ways:
 
 with randomised:
 
-- rope: material, setup, length, current, lean (each new rope), and for
-  every picture its look: 3-strand, braided or smooth; colour (30 % reds like
+- rope: material (a physics rope, never the fixed rod: a featureless
+  straight pole isn't what a real rope looks like), setup, length, current
+  (each new rope), and for every picture its look: 3-strand or braided
+  (never smooth); colour (30 % reds like
   the real rope, 15 % yellows, 35 % marine rope colours, 20 % anything); 30 %
   with a tracer/fleck; some with loose fibres. So a detector has to learn the
   rope's shape and texture, not one colour
@@ -211,7 +213,7 @@ with randomised:
   front of the camera/gripper, half of those looped. The ROV's own tether
   also gets a random colour. With yellow ropes too, colour alone never
   separates rope from tether
-- post: none, pile or pole, near the rope (it hides the rope sometimes)
+- no test post (pile/pole): it's only for the manual tests (`J`)
 - water: tint and visibility (2–30 m), ambient light, sun, the ROV's lamp
 
 A new rope is built every 20 pictures; the physics runs a little between
