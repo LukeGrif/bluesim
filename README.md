@@ -71,6 +71,7 @@ the **menu** (under Pool), or before starting with environment variables:
 | Rope length | 5, 10, 20 m (for a free end) | |
 | Current / from | none, 0.1, 0.25, 0.5 m/s; from the left, right, ahead, behind (relative to the ROV when the rope is placed) | `BLUESIM_CURRENT=0.25,left` |
 | Post | none, pile 0.3 m, pole 0.1 m | `BLUESIM_POST=pile` |
+| (camera tilt) | degrees down, up to 45 (35 puts the gripper's jaws at the bottom of the picture) | `BLUESIM_CAMERA_TILT=35` |
 
 Material keys: `fixed`, `polypropylene`, `dyneema`, `nylon`, `polyester`,
 `leadcore`; setups `surface_floor`, `hanging`, `standing`.

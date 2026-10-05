@@ -39,6 +39,7 @@ const ROPE_LAYER = 1 << 10  # target_rope.gd's physics pieces
 var gripper_command = 0  # 1 opening, -1 closing, 0 stopped
 var gripper_closed = false
 var last_gripper_servo = 0  # last SERVO10 command seen: 1 open, -1 close, 0 stop
+var last_tilt_servo = 0.5  # last SERVO11 (camera tilt) seen, 0-1
 var closing_time = 0.0
 var grasp_area = null
 var grasp_joint = null
@@ -282,6 +283,9 @@ func _ready():
 		return
 	if Globals.active_vehicle == "bluerovheavy":
 		$Camera.set_current(true)
+	# BLUESIM_CAMERA_TILT=35: camera tilted 35 deg down (the gripper in view)
+	if OS.get_environment("BLUESIM_CAMERA_TILT") != "":
+		$Camera.rotation_degrees.x = -clamp(float(OS.get_environment("BLUESIM_CAMERA_TILT")), -45.0, 45.0)
 	_initial_position = get_global_transform().origin
 	set_physics_process(true)
 	if typeof(Globals.active_vehicle) == TYPE_STRING and Globals.active_vehicle == "bluerovheavy":
@@ -434,7 +438,12 @@ func actuate_servo(id, percentage):
 					rjoint.set_param(6, -command)
 					gripper_command = command
 		10:
-			$Camera.rotation_degrees.x = -45 + 90 * percentage
+			# SERVO11: camera tilt. Only a change is acted on, so the keys
+			# (and BLUESIM_CAMERA_TILT) aren't overridden by a servo that
+			# just sits at its middle position.
+			if abs(percentage - last_tilt_servo) > 0.01:
+				last_tilt_servo = percentage
+				$Camera.rotation_degrees.x = -45 + 90 * percentage
 
 
 func _unhandled_input(event):

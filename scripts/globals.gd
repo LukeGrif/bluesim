@@ -27,6 +27,7 @@ var external_sitl = false
 #   BLUESIM_CURRENT=0.25,left         speed (m/s), where it comes from
 #   BLUESIM_POST=pile                 none, pile or pole
 #   BLUESIM_ROPE_LOOK=blue            red, blue, navy_braid, ... (RopeTypes.LOOKS)
+#   BLUESIM_CAMERA_TILT=35            ROV camera tilted 35 deg down (gripper in view; max 45)
 var rope_material = 0  # index into RopeTypes.MATERIALS
 var rope_setup = 0  # index into RopeTypes.SETUPS
 var rope_length = 10.0
