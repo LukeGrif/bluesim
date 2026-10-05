@@ -74,7 +74,10 @@ the **menu** (under Pool), or before starting with environment variables:
 | (camera tilt) | degrees down, up to 45 (35 puts the gripper's jaws at the bottom of the picture) | `BLUESIM_CAMERA_TILT=35` |
 
 Material keys: `fixed`, `polypropylene`, `dyneema`, `nylon`, `polyester`,
-`leadcore`; setups `surface_floor`, `hanging`, `standing`.
+`leadcore`; setups `surface_floor`, `hanging`, `standing`, `u_shape` (a U
+hanging from two points at the surface 3 m apart across the ROV's view; its
+length is the menu's 5/10/20 m; always a physics rope, nylon if "fixed" is
+chosen), e.g. `BLUESIM_ROPE=nylon,u_shape,10`.
 
 | Key | |
 |---|---|

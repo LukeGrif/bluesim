@@ -21,6 +21,7 @@ const SETUPS = [
 	{"key": "surface_floor", "name": "Surface to floor"},
 	{"key": "hanging", "name": "Hanging from the surface"},
 	{"key": "standing", "name": "Standing on the floor"},
+	{"key": "u_shape", "name": "U from the surface (both ends, 3 m apart)"},
 ]
 
 # What the rope looks like (rope/rope.shader), separate from what it's made

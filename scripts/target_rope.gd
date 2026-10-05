@@ -118,7 +118,12 @@ func _unhandled_input(event):
 
 
 func is_fixed():
-	return RopeTypes.MATERIALS[Globals.rope_material]["density"] <= 0.0
+	# a U has to bend: it's always a physics rope (nylon if "fixed" is chosen)
+	return RopeTypes.MATERIALS[Globals.rope_material]["density"] <= 0.0 and not is_u_shape()
+
+
+func is_u_shape():
+	return RopeTypes.SETUPS[Globals.rope_setup]["key"] == "u_shape"
 
 
 func surface_y():
@@ -285,6 +290,9 @@ func build_physics_rope():
 	var floor_y = surface - DEFAULT_LENGTH if floor_hit == null else floor_hit.y
 	var depth = surface - floor_y
 
+	if setup == "u_shape":
+		build_u_rope(material_info, surface, floor_y)
+		return
 	# laid out straight up and down to start with; the physics takes it from there
 	var top_y
 	var length
@@ -340,6 +348,87 @@ func build_physics_rope():
 		pin(make_anchor(Vector3(anchor.x, floor_y, anchor.z)), pieces[-1], top_y - length)
 	print("Rope: %s, %s, %.1f m (%d pieces) %.1f m in front of the ROV camera" % [
 		material_info["name"], RopeTypes.SETUPS[Globals.rope_setup]["name"], length, count, DISTANCE])
+
+
+# A rope hanging in a U from two points at the surface, U_SPAN apart across
+# the ROV's view (centred on the anchor point): laid out as down, across and
+# up again, it settles into a hanging curve. Its length is the menu's (5, 10
+# or 20 m), kept clear of the floor.
+const U_SPAN = 3.0  # m between the two ends
+
+
+func build_u_rope(material_info, surface, floor_y):
+	var density = material_info["density"] if material_info["density"] > 0.0 else 1140.0
+	var side = Vector3.UP.cross(forward).normalized()  # across the ROV's view
+	var length = clamp(Globals.rope_length, U_SPAN + 1.0, U_SPAN + 2.0 * (surface - floor_y - 1.0))
+	var drop = (length - U_SPAN) / 2.0
+	var left = Vector3(anchor.x, surface, anchor.z) - side * U_SPAN / 2.0
+	var right = left + side * U_SPAN
+	var bottom_left = left - Vector3.UP * drop
+	var bottom_right = right - Vector3.UP * drop
+	var path = [left, bottom_left, bottom_right, right]
+	var count = int(clamp(ceil(length / PIECE_LENGTH), 3, MAX_PIECES))
+	var piece = length / count
+
+	var mesh = CapsuleMesh.new()
+	mesh.radius = DIAMETER / 2.0
+	mesh.mid_height = piece
+	mesh.radial_segments = 16
+	mesh.rings = 8
+	var shape = CapsuleShape.new()
+	shape.radius = DIAMETER / 2.0
+	shape.height = piece
+	var previous = null
+	for i in range(count):
+		var a = point_along(path, i * piece)
+		var b = point_along(path, (i + 1) * piece)
+		var body = RigidBody.new()
+		body.set_script(RopeSegment)
+		body.collision_layer = ROPE_LAYER
+		body.collision_mask = 1
+		var mesh_instance = MeshInstance.new()
+		mesh_instance.mesh = mesh
+		mesh_instance.rotation_degrees = Vector3(90, 0, 0)
+		mesh_instance.material_override = rope_material((i + 0.5) * piece, true, 1.0)
+		body.add_child(mesh_instance)
+		var collision = CollisionShape.new()
+		collision.shape = shape
+		collision.rotation_degrees = Vector3(90, 0, 0)
+		body.add_child(collision)
+		add_child(body)
+		body.setup(DIAMETER, piece, density)
+		# the piece's +Y points back up the rope (towards the previous piece)
+		var up_rope = (a - b).normalized()
+		var x_axis = up_rope.cross(forward).normalized()
+		if x_axis.length() < 0.5:
+			x_axis = side
+		body.global_transform = Transform(Basis(x_axis, up_rope, x_axis.cross(up_rope)), (a + b) / 2.0)
+		pieces.append(body)
+		if previous != null:
+			pin_at(previous, body, a)
+		previous = body
+	pin_at(make_anchor(left), pieces[0], left)
+	pin_at(make_anchor(right), pieces[-1], right)
+	print("Rope: %s, U from the surface, %.1f m (%d pieces), ends %.1f m apart, %.1f m in front of the ROV camera" % [
+		material_info["name"], length, count, U_SPAN, DISTANCE])
+
+
+# The point distance d along a polyline.
+func point_along(path, d):
+	for i in range(path.size() - 1):
+		var seg = path[i + 1] - path[i]
+		if d <= seg.length() or i == path.size() - 2:
+			return path[i] + seg.normalized() * clamp(d, 0.0, seg.length())
+		d -= seg.length()
+	return path[-1]
+
+
+func pin_at(a, b, position):
+	var joint = PinJoint.new()
+	add_child(joint)
+	joint.global_transform = Transform(Basis(), position)
+	joint.set_node_a(a.get_path())
+	joint.set_node_b(b.get_path())
 
 
 func make_anchor(position):
