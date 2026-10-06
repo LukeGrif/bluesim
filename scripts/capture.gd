@@ -142,7 +142,9 @@ func setup_camera():
 	camera.fov = HFOV
 	camera.near = 0.05
 	camera.far = rov_camera.far
-	camera.cull_mask = rov_camera.cull_mask
+	# as the ROV's camera (layers 0 and 2 underwater), plus the rope, tether
+	# and cables, moved to SCENE_LAYER so only the scene-depth camera leaves them out
+	camera.cull_mask = rov_camera.cull_mask | (1 << SCENE_LAYER)
 	environment = rov_camera.environment.duplicate()
 	environment.background_mode = Environment.BG_COLOR
 	camera.environment = environment
