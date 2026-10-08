@@ -531,8 +531,9 @@ func restore_rov():
 
 func set_jaws(speed):
 	if ljoint != null:
-		ljoint.set_param(HingeJoint.PARAM_MOTOR_TARGET_VELOCITY, speed)
-		rjoint.set_param(HingeJoint.PARAM_MOTOR_TARGET_VELOCITY, -speed)
+		# + opens (as BlueROV2Heavy.gd's drive_jaws)
+		ljoint.set_param(HingeJoint.PARAM_MOTOR_TARGET_VELOCITY, -speed)
+		rjoint.set_param(HingeJoint.PARAM_MOTOR_TARGET_VELOCITY, speed)
 
 
 # Water, light and the rope's and tether's looks for this picture.

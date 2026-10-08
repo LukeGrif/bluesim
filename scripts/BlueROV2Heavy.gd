@@ -386,6 +386,15 @@ func add_force_local(force: Vector3, pos: Vector3):
 	self.add_force(force_local, pos_local)
 
 
+# Drive the jaws: 1 open, -1 close, 0 stop. The hinges' motors turn the
+# left jaw outwards (open) at a negative speed and the right one at a
+# positive speed (the other way round shuts them).
+func drive_jaws(command):
+	ljoint.set_param(6, -command)
+	rjoint.set_param(6, command)
+	gripper_command = command
+
+
 func actuate_servo(id, percentage):
 	if percentage <= 0:
 		return  # no output on this channel
@@ -434,9 +443,7 @@ func actuate_servo(id, percentage):
 			if command != last_gripper_servo:
 				last_gripper_servo = command
 				if command != 0:
-					ljoint.set_param(6, command)
-					rjoint.set_param(6, -command)
-					gripper_command = command
+					drive_jaws(command)
 		10:
 			# SERVO11: camera tilt. Only a change is acted on, so the keys
 			# (and BLUESIM_CAMERA_TILT) aren't overridden by a servo that
@@ -533,14 +540,8 @@ func process_keys():
 		$Camera.rotation_degrees.x = max($Camera.rotation_degrees.x - 0.1, -45)
 
 	if Input.is_action_pressed("gripper_open"):
-		ljoint.set_param(6, 1)
-		rjoint.set_param(6, -1)
-		gripper_command = 1
+		drive_jaws(1)
 	elif Input.is_action_pressed("gripper_close"):
-		ljoint.set_param(6, -1)
-		rjoint.set_param(6, 1)
-		gripper_command = -1
+		drive_jaws(-1)
 	elif not Globals.external_sitl and not Globals.capturing:  # with SITL the gripper servo drives it (capture sets the jaws itself)
-		ljoint.set_param(6, 0)
-		rjoint.set_param(6, 0)
-		gripper_command = 0
+		drive_jaws(0)
